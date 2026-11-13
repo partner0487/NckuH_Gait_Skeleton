@@ -1,0 +1,24 @@
+# 步態指標門檻值（依《步態指標定義書 YST 20261110》第二節）
+fps: 30.0
+
+preprocess:
+  min_confidence: 0.3        # 信心值低於此視為缺值
+  max_gap_frames: 5          # 連續缺值 ≤ 此格數用三次樣條補值，超過該段不算
+  butter_order: 4            # Butterworth 階數（filtfilt 零相位）
+  cutoff_hz: 6.0             # 截止頻率
+
+pass_detection:
+  min_speed_ratio: 0.5       # 骨盆水平速度需大於該趟平均速度的此比例
+  min_duration_s: 1.0        # 直線段至少多長才算一趟
+
+events:
+  min_hs_interval_s: 0.6     # 同一隻腳兩次 HS 至少間隔；步頻的步時下限取其一半
+  max_stride_s: 2.0          # 步態週期上限（防止跨過漏偵測的步）；步頻的步時上限取其一半
+  min_prominence_leg: 0.1    # 峰值顯著度下限（以腿長的比例計）
+
+strides:
+  curve_points: 101          # 每週期曲線取樣點數（0–100%）
+  max_time_deviation: 0.3    # 週期時間偏離該試驗中位數超過此比例視為切錯（轉身前後重複偵測）
+
+validation:
+  max_lag_frames: 10         # IMU 與影片膝角互相關搜尋範圍（±格）
