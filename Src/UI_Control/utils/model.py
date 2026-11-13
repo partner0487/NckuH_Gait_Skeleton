@@ -25,7 +25,7 @@ class Model(object):
 
     def setDetectParserYolo(self) -> ArgumentParser:
         parser = argparse.ArgumentParser(description="YOLO Model Argument Parsing")
-        parser.add_argument('--model', type=str, default='../../Db/pretrain/yolo11m-seg.pt')
+        parser.add_argument('--model', type=str, default='../../Db/pretrain/yolo26m-seg.pt')
         parser.add_argument('--conf-thres', type=float, default=0.3)
         parser.add_argument('--iou-thres', type=float, default=0.3)
         return parser.parse_args()

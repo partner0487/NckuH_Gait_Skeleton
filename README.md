@@ -1,6 +1,6 @@
 # NckuH-Gait-Skeleton
 
-人體骨架與步態分析系統，整合 YOLOv11 物件偵測、ViTPose 骨架姿態估計（Halpe 26 關節點）與 BoTSORT 多目標追蹤：
+人體骨架與步態分析系統，整合 YOLO26 物件偵測、ViTPose 骨架姿態估計（Halpe 26 關節點）與 BoTSORT 多目標追蹤：
 
 - **GUI**（PyQt5）：對影片逐格偵測骨架、選人、匯出 JSON／CSV，支援整個資料夾批量處理。
 - **步態分析**（`Src/gait_analysis`）：用單一側拍鏡頭的 2D 關節點計算步態指標，並與 VIDIMU 公開資料集的 IMU 關節角度比對。
@@ -57,8 +57,8 @@ cd NckuH_Gait_Skeleton
 ### Step 1 — 建立 Conda 環境
 
 ```bash
-conda create -n Skeleton python=3.8 -y
-conda activate Skeleton
+conda create -n Gait python=3.8 -y
+conda activate Gait
 ```
 
 ---
@@ -177,20 +177,20 @@ python -c "from ultralytics import YOLO; print('YOLO OK')"
 ```
 
 > **libiomp5md.dll 衝突**：若出現 OpenMP 相關警告，請刪除：
-> `C:\Users\<你的帳號>\anaconda3\envs\Skeleton\Library\bin\libiomp5md.dll`
+> `C:\Users\<你的帳號>\anaconda3\envs\Gait\Library\bin\libiomp5md.dll`
 
 ---
 
 ## 模型準備
 
-模型權重檔因體積過大（合計約 1.2 GB）無法上傳至 GitHub，請從以下 Google Drive 下載：
+模型權重檔不在 GitHub 上，請分別下載：
 
-**[點此下載模型檔案](https://drive.google.com/drive/folders/1FJDGG1D4qhj-ivjHMgmz0nLkM_zeKDjX?usp=drive_link)**
+| 檔案名稱 | 用途 | 大小（約）| 下載 |
+|---------|------|---------|------|
+| `epoch_210.pth` | ViTPose 姿態估計模型（HALPE 26 關節點） | ~1.1 GB | [Google Drive](https://drive.google.com/drive/folders/1FJDGG1D4qhj-ivjHMgmz0nLkM_zeKDjX?usp=drive_link) |
+| `yolo26m-seg.pt` | YOLO26 人體偵測模型（Ultralytics 官方 COCO 權重，需要 ultralytics 8.4 以上） | ~52 MB | [Ultralytics v8.4.0](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-seg.pt) |
 
-| 檔案名稱 | 用途 | 大小（約）|
-|---------|------|---------|
-| `epoch_210.pth` | ViTPose 姿態估計模型（HALPE 26 關節點） | ~1.1 GB |
-| `yolo11m-seg.pt` | YOLOv11 人體偵測模型 | ~45 MB |
+`yolo26m-seg.pt` 的 SHA256 為 `16b636f04e8fb6a325b3370f22dc5e5535ff473e384f4d041fd28d788f6ee9f5`。舊版的 `yolo11m-seg.pt` 已不再使用。
 
 下載後，將兩個檔案放至專案的 `Db/pretrain/` 資料夾（若不存在請手動建立）：
 
@@ -199,7 +199,7 @@ NckuH_Gait_Skeleton/
 ├── Db/
 │   ├── pretrain/
 │   │   ├── epoch_210.pth        ← 下載後放這裡
-│   │   └── yolo11m-seg.pt       ← 下載後放這裡
+│   │   └── yolo26m-seg.pt       ← 下載後放這裡
 │   └── Record/                  ← 輸出資料夾（自動建立）
 └── Src/
 ```
@@ -209,7 +209,7 @@ NckuH_Gait_Skeleton/
 ## 啟動程式
 
 ```bash
-conda activate Skeleton
+conda activate Gait
 cd Src\UI_Control
 python main.py
 ```
@@ -410,7 +410,7 @@ Db_NckuH_Gait/
 ### 執行
 
 ```bash
-conda activate Skeleton
+conda activate Gait
 
 # 1. 萃取關節點（GPU，16 支 A01 約 10 分鐘；已萃取過的會跳過）
 python Src/gait_analysis/run_extract.py
@@ -534,7 +534,7 @@ NckuH_Gait_Skeleton/
 
 A：mmpose 需從本專案原始碼安裝。執行：
 ```bash
-conda activate Skeleton
+conda activate Gait
 cd Src\mmpose_main
 python setup.py develop --no-deps
 ```
@@ -546,8 +546,8 @@ python setup.py develop --no-deps
 
 A：執行：
 ```bash
-conda activate Skeleton
-pip install ultralytics==8.3.96
+conda activate Gait
+pip install ultralytics==8.4.203
 ```
 
 ---
@@ -578,7 +578,7 @@ A：protobuf 太新，`requirements.txt` 已固定為 `protobuf==3.20.3`；重�
 
 **Q：出現 `libiomp5md.dll` 衝突警告**
 
-A：刪除 `C:\Users\<帳號>\anaconda3\envs\Skeleton\Library\bin\libiomp5md.dll` 即可解決。
+A：刪除 `C:\Users\<帳號>\anaconda3\envs\Gait\Library\bin\libiomp5md.dll` 即可解決。
 
 ---
 

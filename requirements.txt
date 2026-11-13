@@ -60,7 +60,8 @@ gdown==5.2.0
 ninja==1.13.0
 
 # YOLO
-ultralytics==8.3.96
+ultralytics==8.4.203     # YOLO26 (yolo26m-seg.pt needs ultralytics >= 8.4)
+# Keep this file ASCII-only: pip reads it with the system code page (cp950 on zh-TW Windows).
 
 # NOTE: install separately - NOT via this file
 # torch/torchvision/torchaudio : see README Step 2
