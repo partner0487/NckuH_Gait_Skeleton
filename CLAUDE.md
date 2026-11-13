@@ -8,19 +8,19 @@
 
 | 項目 | 內容 |
 |------|------|
-| Conda 環境 | `Skeleton` |
+| Conda 環境 | `Gait` |
 | Python | 3.8.20 |
 | PyTorch | 2.0.1+cu118 |
 | CUDA | 11.8 |
 
 **啟動指令：**
 ```bash
-conda activate Skeleton
+conda activate Gait
 cd Src/UI_Control
 python main.py
 ```
 
-## 關鍵套件版本（Skeleton 環境）
+## 關鍵套件版本（Gait 環境）
 
 | 套件 | 版本 |
 |------|------|
@@ -30,7 +30,7 @@ python main.py
 | mmengine | 0.10.7 |
 | mmdet | 3.1.0 |
 | mmpretrain | 1.2.0（editable，來自本專案 `Src/mmpretrain_main`） |
-| ultralytics | 8.3.96 |
+| ultralytics | 8.4.203 |
 | PyQt5 | 5.15.11 |
 | opencv-python | 4.8.1.78 |
 
@@ -39,7 +39,7 @@ python main.py
 ```
 Db/pretrain/
 ├── epoch_210.pth          # ViTPose 姿態估計模型（HALPE 26 關節點）
-└── yolo11m-seg.pt         # YOLOv11 人體偵測模型
+└── yolo26m-seg.pt         # YOLO26 人體偵測模型
 ```
 
 ## 程式入口與架構

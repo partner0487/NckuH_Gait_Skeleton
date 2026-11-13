@@ -1,4 +1,4 @@
-"""Run with: conda run -n Skeleton python -m unittest discover -s tests -v"""
+"""Run with: conda run -n Gait python -m unittest discover -s tests -v"""
 import os
 import sys
 import tempfile
