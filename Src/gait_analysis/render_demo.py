@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from gait_analysis.gait import KPT, side_index
-from gait_analysis.plots import FONT_PATH
+from gait_analysis.style import FONT_PATH, VIDIMU_FOOTER, panel_items
 
 W, H = 1280, 720
 VIDEO_BOX = (0, 56, 640, 536)                      # x0, y0, x1, y1
@@ -133,7 +133,8 @@ def draw_chart(canvas, labels, box, title, y_range, ticks, series, t_now, fps, m
         if f_start <= frame <= frame_now:
             x, y = _chart_xy(box, frame / fps, value, t0, y_range)
             cv2.circle(canvas, (int(x), int(y)), 6, MARK_BGR, -1, cv2.LINE_AA)
-            labels.append((x, y + 10, f'最大伸展 {-value:.0f}°', 14, (0, 120, 0), 'ra' if x > x1 - 90 else 'ma'))
+            anchor = 'ra' if x > x1 - 90 else 'la' if x < x0 + 90 else 'ma'     # 靠邊時往內對齊，不壓到刻度
+            labels.append((x, y + 10, f'最大伸展 {-value:.0f}°', 14, (0, 120, 0), anchor))
 
 
 def _polyline(canvas, pts, color, width):
@@ -149,53 +150,66 @@ def _put_labels(canvas, labels):
     return cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
 
-def render(result, video_path, out_path, summary_values, imu_knee=None, bboxes=None):
-    """result 為 gait.TrialResult；imu_knee 為逐格近側腿 IMU 膝角，bboxes 為逐格人物框（皆可省略）。"""
-    fps = result.fps
-    hip = near_series(result, {s: result.angles[s]['hip'] for s in ('L', 'R')})
-    knee = near_series(result, {s: result.angles[s]['knee'] for s in ('L', 'R')})
-    near_by_frame = {}
-    for p in result.passes:
-        for f in range(p.start, p.end):
-            near_by_frame[f] = p.near_side
 
-    strides = result.strides
-    near = strides[(strides['near_far'] == 'near') & strides['valid']].sort_values('hs_end')
-    hip_markers = []
-    for s in near.itertuples():
-        seg = result.angles[s.side]['hip'][s.hs_start:s.hs_end + 1]
-        frame = s.hs_start + int(np.nanargmin(seg))
-        hip_markers.append((frame, seg.min()))
-    near_events = result.events[result.events['near_far'] == 'near']
-    event_frames = {(r.frame, r.event) for r in near_events.itertuples()}
 
-    cap = cv2.VideoCapture(video_path)
-    writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (W, H))
-    subject = result.name.split('_')[0]
-    frame_idx = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok or frame_idx >= len(result.xy):
-            break
-        bbox = bboxes[frame_idx] if bboxes is not None else np.full(4, np.nan)
-        frame = blur_face(frame, result.keypoints[frame_idx], bbox)
-        near_side = near_by_frame.get(frame_idx)
+class DemoRenderer:
+    """逐格合成展示畫面；GUI 播放與匯出影片共用。"""
+
+    def __init__(self, result, summary_values, imu_knee=None, bboxes=None,
+                 header_right='', footer=VIDIMU_FOOTER):
+        """result 為 gait.TrialResult；imu_knee 為逐格近側腿 IMU 膝角，bboxes 為逐格人物框（皆可省略）。"""
+        self.result = result
+        self.values = summary_values
+        self.imu_knee = imu_knee
+        self.bboxes = bboxes
+        self.header_right = header_right
+        self.footer = footer
+        self.hip = near_series(result, {s: result.angles[s]['hip'] for s in ('L', 'R')})
+        self.knee = near_series(result, {s: result.angles[s]['knee'] for s in ('L', 'R')})
+        self.near_by_frame = {f: p.near_side for p in result.passes for f in range(p.start, p.end)}
+
+        strides = result.strides
+        self.hip_markers = []
+        if not strides.empty:
+            near = strides[(strides['near_far'] == 'near') & strides['valid']].sort_values('hs_end')
+            for s in near.itertuples():
+                seg = result.angles[s.side]['hip'][s.hs_start:s.hs_end + 1]
+                self.hip_markers.append((s.hs_start + int(np.nanargmin(seg)), np.nanmin(seg)))
+        near_events = result.events[result.events['near_far'] == 'near']
+        self.event_frames = {(r.frame, r.event) for r in near_events.itertuples()}
+
+    @property
+    def n_frames(self):
+        return len(self.result.xy)
+
+    def render_frame(self, frame_idx, frame):
+        """frame 為原始影像（BGR），回傳 1280×720 的展示畫面。"""
+        result, fps = self.result, self.result.fps
+        bbox = self.bboxes[frame_idx] if self.bboxes is not None else np.full(4, np.nan)
+        frame = blur_face(frame.copy(), result.keypoints[frame_idx], bbox)
+        near_side = self.near_by_frame.get(frame_idx)
         frame = draw_skeleton(frame, result.xy[frame_idx], near_side)
 
         canvas = np.full((H, W, 3), BG, np.uint8)
-        vx0, vy0, vx1, vy1 = VIDEO_BOX
-        canvas[vy0:vy1, vx0:vx1] = cv2.resize(frame, (vx1 - vx0, vy1 - vy0))
+        bx0, by0, bx1, by1 = VIDEO_BOX
+        # 等比例縮放置中（非 4:3 的影片不變形）
+        scale = min((bx1 - bx0) / frame.shape[1], (by1 - by0) / frame.shape[0])
+        fw, fh = int(round(frame.shape[1] * scale)), int(round(frame.shape[0] * scale))
+        vx0, vy0 = bx0 + (bx1 - bx0 - fw) // 2, by0 + (by1 - by0 - fh) // 2
+        canvas[by0:by1, bx0:bx1] = (30, 30, 30)
+        canvas[vy0:vy0 + fh, vx0:vx0 + fw] = cv2.resize(frame, (fw, fh))
+        sx = sy = scale
         labels = [
             (20, 14, '一台鏡頭側拍走路 → 自動算出關節角度', 26, INK, 'la'),
-            (W - 20, 18, f'受試者 {subject}｜A01 往前走', 20, MUTED, 'ra'),
+            (W - 20, 18, self.header_right, 20, MUTED, 'ra'),
         ]
         for lag in range(0, 8):
             for event, text in (('HS', '著地'), ('TO', '離地')):
-                if (frame_idx - lag, event) in event_frames and near_side:
+                if (frame_idx - lag, event) in self.event_frames and near_side:
                     part = 'heel' if event == 'HS' else 'toe'
                     p = result.xy[frame_idx, side_index(part, near_side)]
                     if np.isfinite(p).all():
-                        labels.append((vx0 + p[0] - 18, vy0 + p[1] + 10, text, 18, (0, 90, 200), 'la'))
+                        labels.append((vx0 + p[0] * sx - 18, vy0 + p[1] * sy + 10, text, 18, (0, 90, 200), 'la'))
         if near_side:
             cv2.rectangle(canvas, (vx0 + 6, vy0 + 6), (vx0 + 196, vy0 + 34), (50, 50, 50), -1)
             labels.append((vx0 + 14, vy0 + 10, f'近側腿：{"左" if near_side == "L" else "右"}腳（橘色）',
@@ -203,28 +217,47 @@ def render(result, video_path, out_path, summary_values, imu_knee=None, bboxes=N
 
         t_now = frame_idx / fps
         draw_chart(canvas, labels, HIP_BOX, '髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-30, 50),
-                   (-20, 0, 20, 40), [(hip, VIDEO_BGR, 3)], t_now, fps, markers=hip_markers)
-        knee_series = [(knee, VIDEO_BGR, 3)]
-        if imu_knee is not None:
-            knee_series.insert(0, (imu_knee, IMU_BGR, 2))
+                   (-20, 0, 20, 40), [(self.hip, VIDEO_BGR, 3)], t_now, fps, markers=self.hip_markers)
+        knee_series = [(self.knee, VIDEO_BGR, 3)]
+        if self.imu_knee is not None:
+            knee_series.insert(0, (self.imu_knee, IMU_BGR, 2))
         draw_chart(canvas, labels, KNEE_BOX, '膝關節屈曲角度', (-10, 80), (0, 20, 40, 60),
                    knee_series, t_now, fps)
         labels.append((KNEE_BOX[0], KNEE_BOX[3] + 6, '— 影片（單一鏡頭）', 15, VIDEO_BGR, 'la'))
-        if imu_knee is not None:
+        if self.imu_knee is not None:
             labels.append((KNEE_BOX[0] + 170, KNEE_BOX[3] + 6, '— 穿戴式感測器 IMU', 15, IMU_BGR, 'la'))
         labels.append((KNEE_BOX[2], KNEE_BOX[3] + 6, f'最近 {WINDOW_S:.0f} 秒', 15, MUTED, 'ra'))
 
-        _draw_panel(canvas, labels, summary_values)
-        labels.append((20, 692, '資料來源：VIDIMU（CC BY 4.0）｜公開資料，年輕健康成人；與 IMU 一致性為初步結果',
-                       16, MUTED, 'la'))
-        writer.write(_put_labels(canvas, labels))
-        frame_idx += 1
-    cap.release()
-    writer.release()
+        _draw_panel(canvas, labels, self.values)
+        if self.footer:
+            labels.append((20, 692, self.footer, 16, MUTED, 'la'))
+        return _put_labels(canvas, labels)
+
+
+def render(renderer, video_path, out_path, progress=None, should_stop=None):
+    """把整支影片合成為展示影片。progress(done, total) 回報進度；should_stop() 為 True 時中止並回傳 False。"""
+    cap = cv2.VideoCapture(video_path)
+    writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), renderer.result.fps, (W, H))
+    total = renderer.n_frames
+    frame_idx = 0
+    try:
+        while frame_idx < total:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            writer.write(renderer.render_frame(frame_idx, frame))
+            frame_idx += 1
+            if progress and frame_idx % 30 == 0:
+                progress(frame_idx, total)
+            if should_stop and should_stop():
+                return False
+    finally:
+        cap.release()
+        writer.release()
+    return True
 
 
 def _draw_panel(canvas, labels, values):
-    from gait_analysis.plots import panel_items
     y0, y1 = PANEL_Y
     width = (W - 40 - 3 * 16) / 4
     for i, item in enumerate(panel_items(values)):

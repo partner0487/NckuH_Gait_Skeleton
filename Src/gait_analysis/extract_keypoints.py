@@ -52,7 +52,8 @@ def _pick_box(boxes, prev_box):
     return boxes[int(np.argmax(areas))]
 
 
-def extract_video(model, video_path, out_path, conf_thres=0.3, log_every=200):
+def extract_video(model, video_path, out_path, conf_thres=0.3, log_every=200, progress=None, should_stop=None):
+    """progress(done, total) 回報進度；should_stop() 為 True 時中止、不寫檔並回傳 None。"""
     from mmpose.apis import inference_topdown
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -76,6 +77,11 @@ def extract_video(model, video_path, out_path, conf_thres=0.3, log_every=200):
         bboxes.append(box)
         if log_every and len(keypoints) % log_every == 0:
             print(f'  {os.path.basename(video_path)} {len(keypoints)}/{total}', flush=True)
+        if progress and len(keypoints) % 10 == 0:
+            progress(len(keypoints), total)
+        if should_stop and should_stop():
+            cap.release()
+            return None
     height, width = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cap.release()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
