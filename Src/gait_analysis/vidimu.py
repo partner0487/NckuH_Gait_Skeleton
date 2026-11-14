@@ -13,7 +13,10 @@ VIDEO_DIR = os.path.join(VIDIMU_ROOT, 'Db_VideoSmallSize', 'Db_VideoSOriginal')
 IMU_DIR = os.path.join(VIDIMU_ROOT, 'Database', 'VideoAndImus')
 SYNC_INFO = os.path.join(VIDIMU_ROOT, 'Analysis', 'VideoAndImuSync', 'infoToSync.csv')
 BODY_CSV = os.path.join(VIDIMU_ROOT, 'Database', 'BodyMeasurements.csv')
-OUTPUT_ROOT = os.path.join(PROJECT_ROOT, 'Db', 'Gait')
+# 與「2D 影片」分頁共用 Db/Record：一支影片一個資料夾；底線開頭的是共用資料夾，不是影片
+OUTPUT_ROOT = os.path.join(PROJECT_ROOT, 'Db', 'Record')
+CACHE_DIR = os.path.join(OUTPUT_ROOT, '_cache', 'keypoints')
+SUMMARY_DIR = os.path.join(OUTPUT_ROOT, '_summary')
 
 VIDEO_FPS = 30.0  # VIDIMU 標稱 30 fps；mp4 metadata 會寫 29/31，但幀數 ÷ 30 與 IMU 時長吻合
 

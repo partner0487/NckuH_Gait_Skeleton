@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from gait_analysis.pipeline import analyze_video          # noqa: E402
 from gait_analysis.render_demo import render              # noqa: E402
-from gait_analysis.vidimu import OUTPUT_ROOT              # noqa: E402
 
 
 class AnalysisThread(QThread):
@@ -218,6 +217,14 @@ class GaitTabControl(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, '選擇側拍行走影片', '', 'Video Files (*.mp4 *.avi *.mov);;All Files (*)')
         if not path:
             return
+        stem, ext = os.path.splitext(os.path.basename(path))
+        for suffix, kind in (('_demo', '匯出的展示影片'), ('_Sk26', '已疊上骨架的影片')):
+            if stem.endswith(suffix):
+                # 畫面已疊上圖表或骨架，再分析一次得到的數字沒有意義
+                original = os.path.join(os.path.dirname(path), stem[:-len(suffix)] + ext)
+                hint = f'\n同資料夾的原始影片：{os.path.basename(original)}' if os.path.isfile(original) else ''
+                QMessageBox.warning(self, '請載入原始影片', f'{os.path.basename(path)} 是{kind}，不能再拿來分析。{hint}')
+                return
         self.stopPlay()
         self.fileLabel.setText(f'檔名：{os.path.basename(path)}')
         self.infoLabel.setText('')
@@ -262,7 +269,7 @@ class GaitTabControl(QWidget):
         if self.analysis is None:
             return
         self.stopPlay()
-        default = os.path.join(OUTPUT_ROOT, 'demo', f'{self.analysis.name}_demo.mp4')
+        default = os.path.join(self.analysis.out_dir, f'{self.analysis.name}_demo.mp4')
         os.makedirs(os.path.dirname(default), exist_ok=True)
         path, _ = QFileDialog.getSaveFileName(self, '匯出展示影片', default, 'MP4 (*.mp4)')
         if not path:
