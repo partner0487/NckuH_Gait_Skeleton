@@ -14,10 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from gait_analysis import vidimu
 from gait_analysis.extract_keypoints import extract_video, load_model
-
-
-def keypoints_cache_path(trial):
-    return os.path.join(vidimu.OUTPUT_ROOT, 'keypoints_cache', f'{trial.name}.npz')
+from gait_analysis.pipeline import cache_path
 
 
 def main():
@@ -28,7 +25,7 @@ def main():
     args = parser.parse_args()
 
     trials = vidimu.find_trials(args.activity, args.subjects)
-    todo = [t for t in trials if args.overwrite or not os.path.isfile(keypoints_cache_path(t))]
+    todo = [t for t in trials if args.overwrite or not os.path.isfile(cache_path(t.video_path))]
     print(f'{len(trials)} 個試驗，需萃取 {len(todo)} 個', flush=True)
     if not todo:
         return
@@ -36,7 +33,7 @@ def main():
     for index, trial in enumerate(todo, 1):
         start = time.time()
         print(f'[{index}/{len(todo)}] {trial.name}', flush=True)
-        extract_video(model, trial.video_path, keypoints_cache_path(trial))
+        extract_video(model, trial.video_path, cache_path(trial.video_path))
         print(f'  完成，{time.time() - start:.0f} 秒', flush=True)
 
 
