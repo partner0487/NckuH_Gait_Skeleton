@@ -358,7 +358,19 @@ python main.py
 
 ## 輸出格式
 
-分析完成後，結果儲存至 `Db/Record/{影片名稱}/`：
+兩個分頁的輸出都放在 `Db/Record/`，**一支影片一個資料夾**。同一支影片在兩個分頁都處理過時，檔案會放在同一個資料夾，檔名不會互相覆蓋。底線開頭的資料夾是共用資料，不是影片：
+
+```
+Db/Record/
+├── _cache/keypoints/          # 步態分析的關節點快取（.npz），刪掉只會讓下次載入重新萃取
+├── _summary/                  # 跨影片彙總，如 agreement_A01.csv
+└── {影片名稱}/
+    ├── {影片名稱}.mp4、_Sk26.mp4、.json、.csv                 ← 「2D 影片」分頁
+    ├── {影片名稱}_keypoints、_events、_strides、_curves.csv   ← 「步態分析」分頁（載入即輸出）
+    └── {影片名稱}_demo.mp4、_panel.png、_knee_overlay.png     ← 「步態分析」匯出／run_demo.py
+```
+
+「2D 影片」分頁的檔案：
 
 | 檔案 | 說明 |
 |------|------|
@@ -413,11 +425,11 @@ Db_NckuH_Gait/
 
 啟動程式（`python main.py`）後切到「**步態分析**」分頁：
 
-1. **載入影片**：選擇側拍行走影片。程式在背景萃取關節點並計算指標，進度條顯示萃取進度；可按「取消」中止。萃取過的影片有快取（`Db/Gait/keypoints_cache/`），再次載入會直接讀取
+1. **載入影片**：選擇側拍行走影片。程式在背景萃取關節點並計算指標，進度條顯示萃取進度；可按「取消」中止。萃取過的影片有快取（`Db/Record/_cache/keypoints/`），再次載入會直接讀取。匯出的展示影片（`_demo.mp4`）與骨架影片（`_Sk26.mp4`）畫面已疊上圖表，程式會拒絕載入並提示原始影片
 2. **播放**：畫面與展示影片相同。左半是骨架（臉部模糊、近側腿橘色、著地／離地當下標記），右半是近側腿的髖、膝角度曲線（最近 6 秒），下方是數字面板。可用 `<<`、`▶`、`>>`、進度條，或鍵盤 `A`／`D` 逐格、空白鍵播放
 3. **右側資訊**：行走趟數、近側有效週期數；若有 IMU 則顯示膝角一致性（r、扣平均差 RMSE）
-4. **匯出展示影片**：輸出 1280×720 MP4，並在同一位置輸出數字面板（`_panel.png`），有 IMU 時另輸出膝角疊圖（`_knee_overlay.png`）。預設位置 `Db/Gait/demo/{影片名稱}_demo.mp4`
-5. **開啟輸出資料夾**：載入後自動輸出的四個 CSV 所在位置 `Db/Gait/{影片名稱}/`
+4. **匯出展示影片**：輸出 1280×720 MP4，並在同一位置輸出數字面板（`_panel.png`），有 IMU 時另輸出膝角疊圖（`_knee_overlay.png`）。預設位置 `Db/Record/{影片名稱}/{影片名稱}_demo.mp4`
+5. **開啟輸出資料夾**：載入後自動輸出的四個 CSV 所在位置 `Db/Record/{影片名稱}/`
 
 不同影片的處理方式：
 
@@ -446,18 +458,22 @@ python Src/gait_analysis/run_demo.py
 python Src/gait_analysis/run_demo.py --demo-subjects S40 S42 S47
 ```
 
-### 輸出（`Db/Gait/`）
+### 輸出
+
+與「2D 影片」分頁共用 `Db/Record/{影片名稱}/`（見[輸出格式](#輸出格式)）：
 
 | 檔案 | 內容 |
 |------|------|
-| `{試驗}/{試驗}_keypoints.csv` | 一列一格：26 點原始 x、y、conf 與濾波後 x、y |
-| `{試驗}/{試驗}_events.csv` | 一列一個著地（HS）／離地（TO）事件：趟、側別、近側／遠側、是否為該趟首末步 |
-| `{試驗}/{試驗}_strides.csv` | 一列一個步態週期：A1 髖角、A2 膝角、B6 軀幹前傾、B1 步頻、是否有效 |
-| `{試驗}/{試驗}_curves.csv` | 一列一個週期百分點（0–100%）：影片 hip／knee／trunk 與 IMU imu_hip／imu_knee |
-| `agreement_A01.csv` | 全部試驗的 IMU 一致性（RMSE、扣平均差 RMSE、Pearson r）與面板數值 |
-| `demo/{受試者}_demo.mp4` | 展示影片：左半骨架疊在行走畫面（臉部模糊），右半髖、膝曲線同步畫出，膝角疊 IMU |
-| `demo/{受試者}_knee_overlay.png` | 膝角曲線疊圖（影片 vs IMU，各週期細線與平均粗線） |
-| `demo/{受試者}_panel.png` | 數字面板：步頻、膝活動範圍、最大髖伸展、軀幹前傾角 |
+| `{影片名稱}_keypoints.csv` | 一列一格：26 點原始 x、y、conf 與濾波後 x、y |
+| `{影片名稱}_events.csv` | 一列一個著地（HS）／離地（TO）事件：趟、側別、近側／遠側、是否為該趟首末步 |
+| `{影片名稱}_strides.csv` | 一列一個步態週期：A1 髖角、A2 膝角、B6 軀幹前傾、B1 步頻、是否有效 |
+| `{影片名稱}_curves.csv` | 一列一個週期百分點（0–100%）：影片 hip／knee／trunk 與 IMU imu_hip／imu_knee |
+| `{影片名稱}_demo.mp4` | 展示影片：左半骨架疊在行走畫面（臉部模糊），右半髖、膝曲線同步畫出，膝角疊 IMU |
+| `{影片名稱}_knee_overlay.png` | 膝角曲線疊圖（影片 vs IMU，各週期細線與平均粗線），只有 IMU 試驗才有 |
+| `{影片名稱}_panel.png` | 數字面板：步頻、膝活動範圍、最大髖伸展、軀幹前傾角 |
+| `_summary/agreement_A01.csv` | `run_demo.py` 產生：全部試驗的 IMU 一致性（RMSE、扣平均差 RMSE、Pearson r）與面板數值 |
+
+`run_demo.py` 只為挑出的 3 支展示試驗產生 `_demo.mp4`、`_panel.png`、`_knee_overlay.png`，結束時會列出路徑。
 
 ### 展示版指標
 
@@ -518,8 +534,7 @@ python Src/gait_analysis/run_demo.py --demo-subjects S40 S42 S47
 NckuH_Gait_Skeleton/
 ├── Db/                        # 不進 git
 │   ├── pretrain/              # 模型權重檔
-│   ├── Record/                # GUI 分析輸出（自動建立）
-│   └── Gait/                  # 步態分析輸出（自動建立）
+│   └── Record/                # 兩個分頁的輸出，一支影片一個資料夾（自動建立）
 ├── Db_NckuH_Gait/             # VIDIMU 資料集（不進 git，需自行下載）
 ├── Src/
 │   ├── gait_analysis/         # 步態指標（VIDIMU 展示版）

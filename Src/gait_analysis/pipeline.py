@@ -13,7 +13,7 @@ from gait_analysis import gait, imu_compare, vidimu
 from gait_analysis.render_demo import DemoRenderer, near_series
 from gait_analysis.style import ACTIVITY_NAMES, VIDIMU_FOOTER
 
-CACHE_DIR = os.path.join(vidimu.OUTPUT_ROOT, 'keypoints_cache')
+CACHE_DIR = vidimu.CACHE_DIR
 VIDIMU_NAME = re.compile(r'^(S\d+)_(A\d+)_(T\d+)$')
 
 

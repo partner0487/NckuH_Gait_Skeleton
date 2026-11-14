@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 _yolo_config = tempfile.TemporaryDirectory()
@@ -79,6 +79,15 @@ class GaitWidgetTests(unittest.TestCase):
     def test_renderer_letterboxes_wide_frames(self):
         canvas = self.analysis.renderer().render_frame(100, np.zeros((1080, 1920, 3), np.uint8))
         self.assertEqual(canvas.shape, (H, W, 3))
+
+    def test_rendered_videos_are_rejected(self):
+        widget = GaitTabControl(Mock())
+        for name in ('S52_A01_T02_demo.mp4', 'S52_A01_T02_Sk26.mp4'):
+            with patch('gait_widget.QFileDialog.getOpenFileName', return_value=(f'D:/x/{name}', '')), \
+                    patch('gait_widget.QMessageBox.warning') as warning:
+                widget.loadVideo()
+            warning.assert_called_once()
+            self.assertIsNone(widget.worker)
 
     def test_widget_starts_disabled(self):
         widget = GaitTabControl(Mock())

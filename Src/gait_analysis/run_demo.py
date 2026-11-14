@@ -4,12 +4,10 @@
     python Src/gait_analysis/run_demo.py                          # 分析全部，自動挑 3 位做展示
     python Src/gait_analysis/run_demo.py --demo-subjects S40 S41 S42
 
-輸出（Db/Gait/）：
+輸出（Db/Record/，與「2D 影片」分頁共用，一支影片一個資料夾）：
     <試驗>/<試驗>_keypoints|_events|_strides|_curves.csv    每個試驗的四個 CSV
-    demo/<受試者>_knee_overlay.png                         膝角曲線疊圖（影片 vs IMU）
-    demo/<受試者>_panel.png                                數字面板
-    demo/<受試者>_demo.mp4                                 展示影片
-    agreement_A01.csv                                      全部試驗的 IMU 一致性與面板數值
+    <試驗>/<試驗>_demo.mp4、_panel.png、_knee_overlay.png   展示試驗的展示影片、數字面板、膝角疊圖
+    _summary/agreement_A01.csv                             全部試驗的 IMU 一致性與面板數值
 """
 import argparse
 import os
@@ -40,9 +38,6 @@ def main():
     parser.add_argument('--no-video', action='store_true', help='不產生展示影片')
     args = parser.parse_args()
 
-    demo_dir = os.path.join(vidimu.OUTPUT_ROOT, 'demo')
-    os.makedirs(demo_dir, exist_ok=True)
-
     rows, analyses = [], {}
     for trial in vidimu.find_trials(args.activity):
         try:
@@ -60,7 +55,8 @@ def main():
               flush=True)
 
     table = pd.DataFrame(rows)
-    table_path = os.path.join(vidimu.OUTPUT_ROOT, f'agreement_{args.activity}.csv')
+    os.makedirs(vidimu.SUMMARY_DIR, exist_ok=True)
+    table_path = os.path.join(vidimu.SUMMARY_DIR, f'agreement_{args.activity}.csv')
     table.to_csv(table_path, index=False, float_format='%.3f')
     print(f'彙總表：{table_path}')
 
@@ -72,13 +68,13 @@ def main():
     activity = ACTIVITY_NAMES.get(args.activity, args.activity)
     for name in demo:
         analysis = analyses[name]
-        subject = analysis.trial.subject
+        prefix = os.path.join(analysis.out_dir, name)
         plots.knee_overlay(analysis.curves, analysis.result.strides, analysis.agreement,
-                           os.path.join(demo_dir, f'{subject}_knee_overlay.png'))
-        plots.number_panel(analysis.values, f'{subject} 步態數字面板（{args.activity} {activity}）',
-                           os.path.join(demo_dir, f'{subject}_panel.png'))
+                           f'{prefix}_knee_overlay.png')
+        plots.number_panel(analysis.values, f'{analysis.trial.subject} 步態數字面板（{args.activity} {activity}）',
+                           f'{prefix}_panel.png')
         if not args.no_video:
-            out = os.path.join(demo_dir, f'{subject}_demo.mp4')
+            out = f'{prefix}_demo.mp4'
             render(analysis.renderer(), analysis.video_path, out)
             print(f'  {out}', flush=True)
 
