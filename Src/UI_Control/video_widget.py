@@ -130,7 +130,7 @@ class PoseVideoTabControl(QWidget):
     def updateVideoInfo(self):
         self.reset()
         self.initFrameSlider()
-        self.model.setImageSize(self.video_loader.video_size)
+        self.model.setImageSize(self.video_loader.video_size, self.video_loader.video_fps)
         self.ui.videoNameLabel.setText(self.video_loader.video_name)
         video_size = self.video_loader.video_size
         self.ui.ResolutionLabel.setText(f"(0,0) - {video_size[0]} x {video_size[1]}")
