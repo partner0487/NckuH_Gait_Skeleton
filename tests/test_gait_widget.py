@@ -20,7 +20,7 @@ import numpy as np
 from PyQt5.QtWidgets import QApplication
 
 from gait_analysis import gait, pipeline
-from gait_analysis.render_demo import DemoRenderer, H, W
+from gait_analysis.render_demo import DemoRenderer, H, W, draw_skeleton
 from gait_views import FrameView
 from gait_widget import AnalysisThread, GaitTabControl
 
@@ -55,6 +55,22 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(np.isnan(values['cadence']))
         canvas = DemoRenderer(result, values, footer='').render_frame(0, np.zeros((480, 640, 3), np.uint8))
         self.assertEqual(canvas.shape, (H, W, 3))
+
+    def test_full_skeleton_is_drawn_underneath(self):
+        # 手臂沒參與計算，但完整骨架要以淡灰色畫出；缺點（NaN）的連線不畫
+        xy = np.full((26, 2), np.nan)
+        xy[18], xy[6], xy[8], xy[10] = (100, 50), (100, 60), (100, 120), (100, 180)
+        frame = draw_skeleton(np.zeros((240, 200, 3), np.uint8), xy, 'R')
+        self.assertGreater(frame[150, 100].mean(), 100)        # 手肘到手腕中間
+        self.assertEqual(frame[150, 60].mean(), 0)
+        view = FrameView()
+        view.setFrame(np.zeros((240, 200, 3), np.uint8), xy, 'R')
+        view.resize(400, 480)
+        rect = view.targetRect()
+        scale = rect.width() / 200
+        x, y = int(rect.x() + 100 * scale), int(rect.y() + 150 * scale)
+        image = view.grab().toImage()
+        self.assertGreater(max(image.pixelColor(x + dx, y).red() for dx in (-1, 0, 1)), 60)
 
 
 @unittest.skipUnless(HAS_DEMO, 'VIDIMU S52_A01_T02 資料或關節點快取不存在')

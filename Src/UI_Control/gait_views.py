@@ -8,7 +8,7 @@ from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from gait_analysis.gait import KPT, side_index
+from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
 from gait_analysis.style import panel_items
 
 VIDEO_COLOR = '#1f77b4'
@@ -16,6 +16,8 @@ IMU_COLOR = '#d62728'
 NEAR_COLOR = QColor(255, 140, 0)
 FAR_COLOR = QColor(170, 170, 170)
 TRUNK_COLOR = QColor(90, 90, 90)
+FULL_COLOR = QColor(225, 225, 225, 200)        # 完整骨架底層：淡灰
+FULL_EDGE = QColor(0, 0, 0, 90)
 MARK_COLOR = '#00a000'
 
 
@@ -71,6 +73,14 @@ class FrameView(QWidget):
 
         # 線寬隨顯示大小縮放，小視窗不會過粗、大視窗不會過細
         base = max(1.5, target.width() / 320)
+        # 底層：完整骨架細線；上層再疊計算用到的軀幹與雙腿
+        # 淡灰線外加深色細邊，白牆或深色背景都看得到
+        links = [(pt(a), pt(b)) for a, b in SKELETON_LINKS]
+        links = [(pa, pb) for pa, pb in links if pa and pb]
+        for color, width in ((FULL_EDGE, base * 0.7 + 2), (FULL_COLOR, base * 0.7)):
+            painter.setPen(QPen(color, width, Qt.SolidLine, Qt.RoundCap))
+            for pa, pb in links:
+                painter.drawLine(pa, pb)
         neck = [pt(k) for k in KPT['shoulder']]
         pelvis = [pt(k) for k in KPT['hip']]
         if all(neck) and all(pelvis):

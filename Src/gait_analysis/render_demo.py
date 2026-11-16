@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from gait_analysis.gait import KPT, side_index
+from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
 from gait_analysis.style import FONT_PATH, VIDIMU_FOOTER, panel_items
 
 W, H = 1280, 720
@@ -25,6 +25,8 @@ VIDEO_BGR = (180, 119, 31)                         # #1f77b4
 IMU_BGR = (40, 39, 214)                            # #d62728
 NEAR_BGR = (0, 140, 255)
 FAR_BGR = (170, 170, 170)
+FULL_BGR = (225, 225, 225)                         # 完整骨架底層（以 70% 不透明度疊上）
+FULL_EDGE_BGR = (70, 70, 70)
 MARK_BGR = (0, 160, 0)
 
 HEAD_KPTS = (0, 1, 2, 3, 4, 17)
@@ -80,6 +82,15 @@ def draw_skeleton(frame, xy, near_side):
         pa, pb = pt(a), pt(b)
         if pa and pb:
             cv2.line(frame, pa, pb, color, width, cv2.LINE_AA)
+
+    # 底層：完整骨架細線（半透明），上層再疊計算用到的軀幹與雙腿
+    overlay = frame.copy()
+    links = [(pt(a), pt(b)) for a, b in SKELETON_LINKS]
+    links = [ends for ends in links if all(ends)]
+    for color, width in ((FULL_EDGE_BGR, 4), (FULL_BGR, 2)):      # 深色細邊再疊淡灰，白牆上也看得到
+        for ends in links:
+            cv2.line(overlay, *ends, color, width, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, dst=frame)
 
     shoulders, hips = KPT['shoulder'], KPT['hip']
     neck = (xy[shoulders[0]] + xy[shoulders[1]]) / 2

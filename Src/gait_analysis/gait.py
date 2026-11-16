@@ -19,6 +19,12 @@ KPT = {
     'heel': (24, 25), 'toe': (20, 21),
 }
 SIDES = ('L', 'R')
+# 完整骨架連線（Halpe-26，不含臉部五官），只用於顯示；計算只用到軀幹與雙腿
+SKELETON_LINKS = (
+    (17, 18), (18, 5), (18, 6), (5, 7), (7, 9), (6, 8), (8, 10), (18, 19), (19, 11), (19, 12),
+    (11, 13), (13, 15), (12, 14), (14, 16), (15, 24), (16, 25), (24, 20), (25, 21), (24, 22),
+    (25, 23), (15, 20), (16, 21),
+)
 HALPE_NAMES = [
     'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder',
     'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist', 'left_hip', 'right_hip',
