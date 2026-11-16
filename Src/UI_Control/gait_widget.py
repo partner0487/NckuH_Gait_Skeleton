@@ -1,5 +1,7 @@
 """步態分析分頁：載入側拍行走影片 → 背景萃取關節點與計算指標 → 以 Qt 元件顯示骨架、角度曲線與數字面板。
 
+畫面中有多人時可點選目標人物（記住選擇並重算）；也可批量分析整個資料夾，產生每支影片的快取與輸出檔。
+
 螢幕顯示直接用 Qt 繪製（gait_views.py），任何視窗大小都清晰；「匯出展示影片」才用 render_demo 合成固定畫面。
 """
 import os
@@ -15,7 +17,7 @@ from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLa
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gait_analysis.gait import side_index                 # noqa: E402
-from gait_analysis.pipeline import analyze_video          # noqa: E402
+from gait_analysis.pipeline import SAVED, analyze_video, is_derived_video, list_videos   # noqa: E402
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
 from gait_analysis.style import VIDIMU_FOOTER             # noqa: E402
 from gait_analysis.vidimu import OUTPUT_ROOT              # noqa: E402
@@ -29,20 +31,50 @@ class AnalysisThread(QThread):
     succeeded = pyqtSignal(object)
     failed = pyqtSignal(str)
 
-    def __init__(self, model, video_path):
+    def __init__(self, model, video_path, person_id=SAVED):
         super().__init__()
         self.model = model
         self.video_path = video_path
+        self.person_id = person_id
 
     def run(self):
         try:
             analysis = analyze_video(self.video_path, self.model, progress=self.progress.emit,
-                                     should_stop=self.isInterruptionRequested)
+                                     should_stop=self.isInterruptionRequested, person_id=self.person_id)
         except Exception as error:      # 顯示給使用者，避免背景執行緒默默失敗
             self.failed.emit(f'{type(error).__name__}: {error}')
             return
         if analysis is not None:
             self.succeeded.emit(analysis)
+
+
+class BatchThread(QThread):
+    """依序分析多支影片；單支失敗不中斷，最後回報每支結果 [(檔名, 錯誤訊息或 None)]。"""
+    progress = pyqtSignal(int, int)
+    itemStarted = pyqtSignal(int, int, str)
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, model, video_paths):
+        super().__init__()
+        self.model = model
+        self.video_paths = list(video_paths)
+
+    def run(self):
+        results = []
+        for index, path in enumerate(self.video_paths, 1):
+            if self.isInterruptionRequested():
+                break
+            self.itemStarted.emit(index, len(self.video_paths), os.path.basename(path))
+            try:
+                done = analyze_video(path, self.model, progress=self.progress.emit,
+                                     should_stop=self.isInterruptionRequested)
+                if done is None:
+                    break
+                results.append((os.path.basename(path), None))
+            except Exception as error:
+                results.append((os.path.basename(path), f'{type(error).__name__}: {error}'))
+        self.succeeded.emit(results)
 
 
 class ExportThread(QThread):
@@ -129,12 +161,17 @@ class GaitTabControl(QWidget):
         left.addLayout(controls)
 
         self.loadBtn = QPushButton('載入影片')
+        self.batchBtn = QPushButton('批量分析資料夾')
+        self.autoTargetBtn = QPushButton('改回自動選擇目標')
         self.exportBtn = QPushButton('匯出展示影片')
         self.openFolderBtn = QPushButton('開啟輸出資料夾')
         self.cancelBtn = QPushButton('取消')
-        for button in (self.loadBtn, self.exportBtn, self.openFolderBtn, self.cancelBtn):
+        for button in (self.loadBtn, self.batchBtn, self.autoTargetBtn, self.exportBtn, self.openFolderBtn,
+                       self.cancelBtn):
             button.setMinimumHeight(40)
         self.fileLabel = QLabel('檔名：')
+        self.targetLabel = QLabel('')
+        self.targetLabel.setWordWrap(True)
         self.statusLabel = QLabel('')
         self.statusLabel.setWordWrap(True)
         self.progressBar = QProgressBar()
@@ -146,12 +183,14 @@ class GaitTabControl(QWidget):
         panel = QGroupBox('步態分析')
         panel.setFixedWidth(300)
         side = QVBoxLayout(panel)
-        for widget in (self.fileLabel, self.loadBtn, self.exportBtn, self.openFolderBtn, self.cancelBtn,
-                       self.progressBar, self.statusLabel, self.infoLabel):
+        for widget in (self.fileLabel, self.loadBtn, self.batchBtn, self.targetLabel, self.autoTargetBtn,
+                       self.exportBtn, self.openFolderBtn, self.cancelBtn, self.progressBar, self.statusLabel,
+                       self.infoLabel):
             side.addWidget(widget)
         side.addStretch(1)
         hint = QLabel('影片需為側面拍攝、受試者在畫面中左右來回行走。檔名為 VIDIMU 格式'
                       '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n\n'
+                      '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。\n\n'
                       '鍵盤：A／D 逐格、空白鍵播放。拖曳或點擊曲線可跳到該時間。')
         hint.setWordWrap(True)
         hint.setStyleSheet('color: #777777;')
@@ -163,6 +202,9 @@ class GaitTabControl(QWidget):
 
     def bindUi(self):
         self.loadBtn.clicked.connect(self.loadVideo)
+        self.batchBtn.clicked.connect(self.batchAnalyze)
+        self.autoTargetBtn.clicked.connect(lambda: self.selectTarget(None))
+        self.view.imageClicked.connect(self.onImageClicked)
         self.exportBtn.clicked.connect(self.exportDemo)
         self.openFolderBtn.clicked.connect(self.openOutputFolder)
         self.cancelBtn.clicked.connect(self.cancelWorker)
@@ -181,6 +223,10 @@ class GaitTabControl(QWidget):
         self.exportBtn.setEnabled(loaded and not busy)
         self.openFolderBtn.setEnabled(loaded)
         self.loadBtn.setEnabled(not busy)
+        self.batchBtn.setEnabled(not busy)
+        manual = loaded and self.analysis is not None and self.analysis.person_id is not None
+        self.autoTargetBtn.setVisible(manual)
+        self.autoTargetBtn.setEnabled(manual and not busy)
         self.cancelBtn.setVisible(busy)
 
     def keyPressEvent(self, event):
@@ -246,7 +292,7 @@ class GaitTabControl(QWidget):
             return
         stem, ext = os.path.splitext(os.path.basename(path))
         for suffix, kind in (('_demo', '匯出的展示影片'), ('_Sk26', '已疊上骨架的影片')):
-            if stem.endswith(suffix):
+            if is_derived_video(path) and stem.endswith(suffix):
                 # 畫面已疊上圖表或骨架，再分析一次得到的數字沒有意義
                 original = os.path.join(os.path.dirname(path), stem[:-len(suffix)] + ext)
                 hint = f'\n同資料夾的原始影片：{os.path.basename(original)}' if os.path.isfile(original) else ''
@@ -258,7 +304,54 @@ class GaitTabControl(QWidget):
         self.startWorker(AnalysisThread(self.model, path), '萃取關節點與計算步態指標中…（處理過的影片會直接讀取快取）',
                          self.onAnalyzed)
 
-    def onAnalyzed(self, analysis):
+    def onImageClicked(self, x, y):
+        """點到某人的框就改以他為目標重算（框重疊時取面積最小的人）。"""
+        if self.analysis is None or self.worker is not None or not self.analysis.can_select:
+            return
+        hits = [(float((b[2] - b[0]) * (b[3] - b[1])), person_id)
+                for person_id, b in self.analysis.persons_at(self.current_frame)
+                if b[0] <= x <= b[2] and b[1] <= y <= b[3]]
+        if not hits:
+            return
+        person_id = min(hits)[1]
+        if person_id != self.analysis.person_id:
+            self.selectTarget(person_id)
+
+    def selectTarget(self, person_id):
+        if self.analysis is None or self.worker is not None:
+            return
+        self.stopPlay()
+        frame = self.current_frame
+        text = '自動選擇' if person_id is None else f'ID {person_id}'
+        self.startWorker(AnalysisThread(self.model, self.analysis.video_path, person_id),
+                         f'改以 {text} 為目標重新計算，並更新骨架影片…',
+                         lambda analysis: self.onAnalyzed(analysis, frame))
+
+    def batchAnalyze(self):
+        start = OUTPUT_ROOT if os.path.isdir(OUTPUT_ROOT) else ''
+        if self.analysis is not None:
+            start = os.path.dirname(self.analysis.video_path)
+        folder = QFileDialog.getExistingDirectory(self, '選擇要批量分析的影片資料夾', start)
+        if not folder:
+            return
+        videos = list_videos(folder)
+        if not videos:
+            QMessageBox.warning(self, '無法批量分析', '資料夾中沒有可分析的影片（.mp4／.avi／.mov，不含 _Sk26、_demo）。')
+            return
+        self.stopPlay()
+        worker = BatchThread(self.model, videos)
+        worker.itemStarted.connect(
+            lambda i, n, name: self.statusLabel.setText(f'批量分析 {i}/{n}：{name}\n（有快取的影片很快，新影片需萃取關節點）'))
+        self.startWorker(worker, f'批量分析 {len(videos)} 支影片…', self.onBatchDone)
+
+    def onBatchDone(self, results):
+        failed = [(name, error) for name, error in results if error]
+        lines = [f'完成 {len(results) - len(failed)}/{len(results)} 支，輸出在 {OUTPUT_ROOT}']
+        lines += [f'✗ {name}：{error}' for name, error in failed[:10]]
+        self.statusLabel.setText(lines[0])
+        QMessageBox.information(self, '批量分析結束', '\n'.join(lines))
+
+    def onAnalyzed(self, analysis, frame=0):
         if self.cap is not None:
             self.cap.release()
         self.analysis = analysis
@@ -280,12 +373,24 @@ class GaitTabControl(QWidget):
 
         blocked = self.frameSlider.blockSignals(True)
         self.frameSlider.setRange(0, max(renderer.n_frames - 1, 0))
-        self.frameSlider.setValue(0)
+        frame = min(max(frame, 0), max(renderer.n_frames - 1, 0))
+        self.frameSlider.setValue(frame)
         self.frameSlider.blockSignals(blocked)
         self.timer.setInterval(max(1, int(round(1000 / fps))))
         self.statusLabel.setText('分析完成')
         self.infoLabel.setText(self.summaryText(analysis))
-        self.showFrame(0)
+        self.targetLabel.setText(self.targetText(analysis))
+        self.showFrame(frame)
+        self.setLoaded(True)
+
+    @staticmethod
+    def targetText(analysis):
+        if not analysis.can_select:
+            return '目標人物：自動（這支影片沒有多人資料，無法點選）'
+        if analysis.person_id is not None:
+            return f'目標人物：ID {analysis.person_id}（手動點選）'
+        auto = f'，主要為 ID {analysis.auto_id}' if analysis.auto_id is not None else ''
+        return f'目標人物：自動（畫面中最大的人{auto}）'
 
     @staticmethod
     def summaryText(analysis):
@@ -301,7 +406,8 @@ class GaitTabControl(QWidget):
             lines.append('此 VIDIMU 試驗沒有 IMU 資料（只有 S40–S57 有），不做 IMU 對照。')
         else:
             lines.append('非 VIDIMU 影片，沒有 IMU 對照。')
-        lines.append(f'CSV 已輸出至：{analysis.out_dir}')
+        lines.append(f'已輸出至：{analysis.out_dir}')
+        lines += [f'⚠ {warning}' for warning in analysis.warnings]
         return '\n'.join(lines)
 
     def exportDemo(self):
@@ -368,7 +474,11 @@ class GaitTabControl(QWidget):
                         p = result.xy[frame_idx, side_index(part, near_side)]
                         if np.isfinite(p).all():
                             labels.append((text, p[0], p[1]))
-        self.view.setFrame(frame, result.xy[frame_idx], near_side, labels)
+        target_box = renderer.bboxes[frame_idx] if renderer.bboxes is not None else None
+        persons = [(person_id, box, target_box is not None and bool(np.isfinite(target_box).all())
+                    and bool(np.allclose(box, target_box)))
+                   for person_id, box in self.analysis.persons_at(frame_idx)]
+        self.view.setFrame(frame, result.xy[frame_idx], near_side, labels, persons)
         t = frame_idx / result.fps
         for plot in (self.hipPlot, self.kneePlot):
             plot.setTimeCursor(t)

@@ -3,6 +3,8 @@
 1280×720：左半為行走畫面加骨架（臉部模糊），右半同步畫出近側腿髖、膝角度曲線
 （膝角疊 IMU），下方為數字面板與資料來源註記。
 """
+import os
+
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -265,6 +267,54 @@ def render(renderer, video_path, out_path, progress=None, should_stop=None):
     finally:
         cap.release()
         writer.release()
+    return True
+
+
+def render_skeleton_video(analysis, out_path, progress=None, should_stop=None):
+    """_Sk26.mp4：原片解析度與 fps，目標人物畫完整骨架（近側腿橘色），其他人只畫框與 ID。
+
+    先寫到暫存檔，完成才改名，中途取消不會留下不完整的影片。中止時回傳 False。
+    """
+    result = analysis.result
+    near_by_frame = {f: p.near_side for p in result.passes for f in range(p.start, p.end)}
+    cap = cv2.VideoCapture(analysis.video_path)
+    width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    temp = out_path + '.part.mp4'
+    writer = cv2.VideoWriter(temp, cv2.VideoWriter_fourcc(*'mp4v'), result.fps, (width, height))
+    total, frame_idx, finished = len(result.xy), 0, False
+    try:
+        while frame_idx < total:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            target_box = analysis.bboxes[frame_idx]
+            for person_id, box in analysis.persons_at(frame_idx):
+                is_target = np.isfinite(target_box).all() and np.allclose(box, target_box)
+                color, thickness = (NEAR_BGR, 2) if is_target else (FAR_BGR, 1)
+                x0, y0, x1, y1 = (int(v) for v in box)
+                cv2.rectangle(frame, (x0, y0), (x1, y1), color, thickness, cv2.LINE_AA)
+                text = f'ID {person_id}'
+                (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                ty = max(th + 6, y0)                    # 深色底，白牆上也看得清楚
+                cv2.rectangle(frame, (x0, ty - th - 6), (x0 + tw + 6, ty), (40, 40, 40), -1)
+                cv2.putText(frame, text, (x0 + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            draw_skeleton(frame, result.xy[frame_idx], near_by_frame.get(frame_idx))
+            writer.write(frame)
+            frame_idx += 1
+            if progress and frame_idx % 30 == 0:
+                progress(frame_idx, total)
+            if should_stop and should_stop():
+                return False
+        finished = True
+    finally:
+        cap.release()
+        writer.release()
+        try:
+            if finished:
+                os.replace(temp, out_path)      # 舊檔被播放器開著時會 PermissionError，交給呼叫端提示
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
     return True
 
 

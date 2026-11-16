@@ -1,7 +1,10 @@
 """逐格萃取 Halpe-26 關節點（YOLO 人物框 + ViTPose），不經 GUI。
 
-每支影片只取一位受試者：優先與上一格人物框重疊者，否則取面積最大者。
-輸出 npz：keypoints (T, 26, 3) = x, y, conf；沒偵測到的格為 NaN。
+每格對畫面中所有人估計骨架，並以 BoTSORT 追蹤給每個人固定 ID（可在 GUI 點選目標）。
+自動目標：優先與上一格人物框重疊者，否則取面積最大者。
+輸出 npz（format 2）：
+    keypoints (T, 26, 3) = x, y, conf、bboxes (T, 4)   自動目標；沒偵測到的格為 NaN
+    person_frame/person_id/person_bbox/person_kpts       所有人（N 筆），沒對上追蹤的 ID 為 -1
 """
 import os
 import sys
@@ -44,35 +47,67 @@ def _iou(a, b):
 
 
 def _pick_box(boxes, prev_box):
+    """自動目標在 boxes 中的索引。"""
     areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
     if prev_box is not None:
         ious = np.array([_iou(box, prev_box) for box in boxes])
         if ious.max() > 0.3:
-            return boxes[int(np.argmax(ious * areas))]
-    return boxes[int(np.argmax(areas))]
+            return int(np.argmax(ious * areas))
+    return int(np.argmax(areas))
 
 
-def extract_video(model, video_path, out_path, conf_thres=0.3, log_every=200, progress=None, should_stop=None):
+def _match_ids(boxes, targets, min_iou=0.5):
+    """把追蹤結果對回偵測框（IoU 由大到小配對），沒對上的為 -1。"""
+    ids = np.full(len(boxes), -1, int)
+    pairs = sorted(((_iou(box, target.tlbr), i, int(target.track_id))
+                    for i, box in enumerate(boxes) for target in targets), reverse=True)
+    used = set()
+    for iou, i, track_id in pairs:
+        if iou < min_iou:
+            break
+        if ids[i] == -1 and track_id not in used:
+            ids[i] = track_id
+            used.add(track_id)
+    return ids
+
+
+def extract_video(model, video_path, out_path, conf_thres=0.3, frame_rate=30.0, log_every=200,
+                  progress=None, should_stop=None):
     """progress(done, total) 回報進度；should_stop() 為 True 時中止、不寫檔並回傳 None。"""
     from mmpose.apis import inference_topdown
+    from tracker.mc_bot_sort import BoTSORT
+    # 自己建一個追蹤器，不動到 2D 分頁共用的 model.tracker
+    tracker = BoTSORT(model.tracker_args, frame_rate=frame_rate)
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     keypoints, bboxes = [], []
+    rows = {'frame': [], 'id': [], 'bbox': [], 'kpts': []}
     prev_box = None
     while True:
         ok, frame = cap.read()
         if not ok:
             break
+        frame_idx = len(keypoints)
         det = model.detector.predict(frame, classes=[0], conf=conf_thres, verbose=False)[0]
-        boxes = det.boxes.xyxy.cpu().numpy()
+        boxes = det.boxes.xyxy.cpu().numpy().reshape(-1, 4)
+        scores = det.boxes.conf.cpu().numpy().reshape(-1, 1)
+        targets = tracker.update(np.hstack((boxes, scores, np.zeros_like(scores))), frame)
         kpts = np.full((NUM_KPTS, 3), np.nan)
         box = np.full(4, np.nan)
         if len(boxes):
-            box = _pick_box(boxes, prev_box)
+            all_kpts = np.full((len(boxes), NUM_KPTS, 3), np.nan)
+            for i, sample in enumerate(inference_topdown(model.pose_estimator, frame, boxes)):
+                pred = sample.pred_instances
+                all_kpts[i, :, :2] = pred.keypoints[0][:NUM_KPTS]
+                all_kpts[i, :, 2] = pred.keypoint_scores[0][:NUM_KPTS]
+            ids = _match_ids(boxes, targets)
+            pick = _pick_box(boxes, prev_box)
+            box, kpts = boxes[pick], all_kpts[pick]
             prev_box = box
-            pred = inference_topdown(model.pose_estimator, frame, box[None])[0].pred_instances
-            kpts[:, :2] = pred.keypoints[0][:NUM_KPTS]
-            kpts[:, 2] = pred.keypoint_scores[0][:NUM_KPTS]
+            rows['frame'] += [frame_idx] * len(boxes)
+            rows['id'] += ids.tolist()
+            rows['bbox'] += list(boxes)
+            rows['kpts'] += list(all_kpts)
         keypoints.append(kpts)
         bboxes.append(box)
         if log_every and len(keypoints) % log_every == 0:
@@ -85,6 +120,11 @@ def extract_video(model, video_path, out_path, conf_thres=0.3, log_every=200, pr
     height, width = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cap.release()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    np.savez_compressed(out_path, keypoints=np.asarray(keypoints), bboxes=np.asarray(bboxes),
-                        image_size=np.array([width, height]), video_path=video_path)
+    np.savez_compressed(
+        out_path, format=2, keypoints=np.asarray(keypoints), bboxes=np.asarray(bboxes),
+        image_size=np.array([width, height]), video_path=video_path,
+        video_bytes=os.path.getsize(video_path),
+        person_frame=np.asarray(rows['frame'], int), person_id=np.asarray(rows['id'], int),
+        person_bbox=np.asarray(rows['bbox'], float).reshape(-1, 4),
+        person_kpts=np.asarray(rows['kpts'], float).reshape(-1, NUM_KPTS, 3))
     return out_path

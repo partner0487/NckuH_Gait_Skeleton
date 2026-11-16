@@ -22,7 +22,11 @@ MARK_COLOR = '#00a000'
 
 
 class FrameView(QWidget):
-    """影片畫面：影像等比例縮放後，骨架與標記在螢幕解析度上繪製。"""
+    """影片畫面：影像等比例縮放後，骨架與標記在螢幕解析度上繪製。
+
+    畫面中有兩人以上時畫出每個人的框與 ID；點擊畫面發出 imageClicked(影像 x, 影像 y)。
+    """
+    imageClicked = pyqtSignal(float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -30,16 +34,24 @@ class FrameView(QWidget):
         self.xy = None
         self.near_side = None
         self.labels = []
+        self.persons = []           # [(person_id, bbox, is_target)]
         self.placeholder = '請載入側拍行走影片'
         self.setMinimumSize(320, 240)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-    def setFrame(self, frame_bgr, xy, near_side, labels=()):
-        """xy 為 (26, 2) 影像座標；labels 為 [(文字, 影像 x, 影像 y)]。"""
+    def setFrame(self, frame_bgr, xy, near_side, labels=(), persons=()):
+        """xy 為 (26, 2) 影像座標；labels 為 [(文字, 影像 x, 影像 y)]；persons 為 [(ID, 框, 是否目標)]。"""
         height, width = frame_bgr.shape[:2]
         self.image = QImage(frame_bgr.data, width, height, 3 * width, QImage.Format_RGB888).rgbSwapped()
-        self.xy, self.near_side, self.labels = xy, near_side, list(labels)
+        self.xy, self.near_side, self.labels, self.persons = xy, near_side, list(labels), list(persons)
         self.update()
+
+    def mousePressEvent(self, event):
+        target = self.targetRect()
+        if self.image is None or event.button() != Qt.LeftButton or not target.contains(event.pos()):
+            return super().mousePressEvent(event)
+        scale = target.width() / self.image.width()
+        self.imageClicked.emit((event.pos().x() - target.x()) / scale, (event.pos().y() - target.y()) / scale)
 
     def clear(self, placeholder=''):
         self.image = None
@@ -73,6 +85,23 @@ class FrameView(QWidget):
 
         # 線寬隨顯示大小縮放，小視窗不會過粗、大視窗不會過細
         base = max(1.5, target.width() / 320)
+        if len(self.persons) >= 2:          # 多人時才畫框，方便點選目標
+            font = QFont(self.font())
+            font.setPixelSize(int(max(11, target.height() / 40)))
+            painter.setFont(font)
+            for person_id, box, is_target in self.persons:
+                color = NEAR_COLOR if is_target else QColor(255, 255, 255)
+                rect = QRectF(target.x() + box[0] * scale, target.y() + box[1] * scale,
+                              (box[2] - box[0]) * scale, (box[3] - box[1]) * scale)
+                painter.setPen(QPen(color, 2 if is_target else 1, Qt.SolidLine if is_target else Qt.DashLine))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRect(rect)
+                text = f'ID {person_id}' + ('（目標）' if is_target else '')
+                tag = QRectF(rect.x(), rect.y() - font.pixelSize() - 6,
+                             painter.fontMetrics().horizontalAdvance(text) + 8, font.pixelSize() + 6)
+                painter.fillRect(tag, QColor(40, 40, 40, 190))
+                painter.setPen(color)
+                painter.drawText(tag, Qt.AlignCenter, text)
         # 底層：完整骨架細線；上層再疊計算用到的軀幹與雙腿
         # 淡灰線外加深色細邊，白牆或深色背景都看得到
         links = [(pt(a), pt(b)) for a, b in SKELETON_LINKS]
