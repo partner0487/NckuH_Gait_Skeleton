@@ -12,6 +12,7 @@ _yolo_config = tempfile.TemporaryDirectory()
 os.environ['YOLO_CONFIG_DIR'] = _yolo_config.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Src' / 'UI_Control'))
 
+import cv2
 import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import QApplication
@@ -182,6 +183,30 @@ class VideoWorkflowTests(unittest.TestCase):
         self.assertIsNone(widget.pose_estimater.person_id)
         self.assertIsNone(widget.pose_estimater.processImage.call_args.kwargs['select_id'])
         widget.close()
+
+
+class FrameRateTests(unittest.TestCase):
+    def test_loaded_video_keeps_source_fps(self):
+        # 以前讀進來後 fps 被減半，輸出影片變成慢動作
+        from cv_utils.cv_thread import VideoToImagesThread
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'clip.avi')
+            writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*'MJPG'), 25, (64, 48))
+            for _ in range(10):
+                writer.write(np.zeros((48, 64, 3), np.uint8))
+            writer.release()
+            frames, fps, count = VideoToImagesThread(path).video_to_frame(path)
+        self.assertEqual((len(frames), count), (10, 10))
+        self.assertAlmostEqual(fps, 25.0)
+
+    def test_tracker_buffer_follows_video_fps(self):
+        model = Model.__new__(Model)
+        with patch.object(sys, 'argv', ['test']):
+            model.tracker_args = model.setTrackerParser()
+        model.setImageSize((640, 480), 60.0)
+        # track_buffer 360 格以 30 fps 計 = 12 秒；60 fps 時要保留 720 格才同樣是 12 秒
+        self.assertEqual(model.tracker.max_time_lost, 2 * model.tracker_args.track_buffer)
+        self.assertEqual(model.image_size, (640, 480))
 
 
 if __name__ == '__main__':

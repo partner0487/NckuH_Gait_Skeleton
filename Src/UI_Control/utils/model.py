@@ -65,9 +65,10 @@ class Model(object):
     def init_tracker(self):
         self.tracker = BoTSORT(self.tracker_args, frame_rate=30.0)
 
-    def reset_tracker(self):
-        self.tracker = BoTSORT(self.tracker_args, frame_rate=30.0)
+    def reset_tracker(self, frame_rate: float = 30.0):
+        # frame_rate 決定目標消失後保留多少格（track_buffer 以 30 fps 計），要用影片實際 fps
+        self.tracker = BoTSORT(self.tracker_args, frame_rate=frame_rate)
 
-    def setImageSize(self, image_size: tuple):
-        self.reset_tracker()
+    def setImageSize(self, image_size: tuple, frame_rate: float = 30.0):
+        self.reset_tracker(frame_rate)
         self.image_size = image_size
