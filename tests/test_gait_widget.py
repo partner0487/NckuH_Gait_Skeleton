@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import QApplication
 
 from gait_analysis import gait, pipeline
 from gait_analysis.render_demo import DemoRenderer, H, W
+from gait_views import FrameView
 from gait_widget import AnalysisThread, GaitTabControl
 
 APP = QApplication.instance() or QApplication([])
@@ -100,11 +101,29 @@ class GaitWidgetTests(unittest.TestCase):
         widget.onAnalyzed(self.analysis)
         widget.setLoaded(True)
         self.assertEqual(widget.frameSlider.maximum(), self.analysis.result.xy.shape[0] - 1)
-        self.assertIsNotNone(widget.pixmap)
+        self.assertIsNotNone(widget.view.image)
         widget.frameSlider.setValue(300)
         self.assertEqual(widget.current_frame, 300)
+        self.assertAlmostEqual(widget.hipPlot.cursor.value(), 10.0)
         self.assertIn('與 IMU 一致性', widget.infoLabel.text())
+        self.assertNotIn('—', widget.summaryPanel.texts())
+        # 曲線上拖曳／點擊會跳到該時間；跟隨播放時曲線視窗包含目前時間
+        widget.hipPlot.seekRequested.emit(20.0)
+        self.assertEqual(widget.current_frame, 600)
+        x_min, x_max = widget.hipPlot.viewRange()[0]
+        self.assertTrue(x_min <= 20.0 <= x_max)
         widget.shutdown()
+
+    def test_frame_view_paints_at_any_size(self):
+        view = FrameView()
+        frame = np.full((480, 640, 3), 128, np.uint8)
+        view.setFrame(frame, self.analysis.result.xy[300], 'R', [('著地', 300.0, 400.0)])
+        for size in ((400, 300), (1600, 900)):
+            view.resize(*size)
+            image = view.grab().toImage()
+            self.assertEqual((image.width(), image.height()), size)
+            # 影像置中、上下或左右留邊：中心是影像灰色，角落是背景深灰
+            self.assertEqual(image.pixelColor(size[0] // 2, size[1] // 2).red(), 128)
 
     def test_analysis_thread_reads_cache_without_model(self):
         thread = AnalysisThread(None, str(DEMO_VIDEO))

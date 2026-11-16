@@ -1,18 +1,26 @@
-"""步態分析分頁：載入側拍行走影片 → 背景萃取關節點與計算指標 → 播放展示畫面（與 demo 影片相同）。"""
+"""步態分析分頁：載入側拍行走影片 → 背景萃取關節點與計算指標 → 以 Qt 元件顯示骨架、角度曲線與數字面板。
+
+螢幕顯示直接用 Qt 繪製（gait_views.py），任何視窗大小都清晰；「匯出展示影片」才用 render_demo 合成固定畫面。
+"""
 import os
 import subprocess
 import sys
 
 import cv2
+import numpy as np
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import (QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar,
-                             QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar,
+                             QPushButton, QSlider, QVBoxLayout, QWidget)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from gait_analysis.gait import side_index                 # noqa: E402
 from gait_analysis.pipeline import analyze_video          # noqa: E402
-from gait_analysis.render_demo import render              # noqa: E402
+from gait_analysis.render_demo import blur_face, render   # noqa: E402
+from gait_analysis.style import VIDIMU_FOOTER             # noqa: E402
+from gait_views import IMU_COLOR, VIDEO_COLOR, AnglePlot, FrameView, SummaryPanel   # noqa: E402
+
+FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
 
 
 class AnalysisThread(QThread):
@@ -67,10 +75,9 @@ class GaitTabControl(QWidget):
         super().__init__(parent)
         self.model = model
         self.analysis = None
-        self.renderer = None
+        self.renderer = None        # DemoRenderer：提供近側腿、曲線、最大伸展點與事件等逐格資料
         self.cap = None
         self.current_frame = -1
-        self.pixmap = None
         self.worker = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.nextFrame)
@@ -81,11 +88,22 @@ class GaitTabControl(QWidget):
     # ------------------------------------------------------------------ UI
 
     def setupUi(self):
-        self.view = QLabel('請載入側拍行走影片')
-        self.view.setAlignment(Qt.AlignCenter)
-        self.view.setMinimumSize(640, 360)
-        self.view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        self.view.setStyleSheet('background-color: #f2f2f2; color: #888888; font-size: 18px;')
+        self.headerLabel = QLabel('')
+        self.headerLabel.setStyleSheet('font-size: 13pt; color: #555;')
+        self.view = FrameView()
+        self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-30, 50))
+        self.kneePlot = AnglePlot('膝關節屈曲角度', (-10, 80))
+        self.kneePlot.setXLink(self.hipPlot)
+        plots = QVBoxLayout()
+        plots.addWidget(self.hipPlot)
+        plots.addWidget(self.kneePlot)
+        display = QHBoxLayout()
+        display.addWidget(self.view, 1)
+        display.addLayout(plots, 1)
+
+        self.summaryPanel = SummaryPanel()
+        self.footerLabel = QLabel('')
+        self.footerLabel.setStyleSheet('color: #777;')
 
         self.backBtn = QPushButton('<<')
         self.playBtn = QPushButton('▶︎')
@@ -94,12 +112,19 @@ class GaitTabControl(QWidget):
             button.setFixedSize(50, 30)
         self.frameSlider = QSlider(Qt.Horizontal)
         self.frameNumLabel = QLabel('0/0')
+        self.followCheckBox = QCheckBox('曲線跟隨播放')
+        self.followCheckBox.setChecked(True)
+        self.followCheckBox.setToolTip('取消勾選後可在曲線上自由縮放、平移；拖曳或點擊曲線可跳到該時間')
         controls = QHBoxLayout()
-        for widget in (self.backBtn, self.playBtn, self.forwardBtn, self.frameSlider, self.frameNumLabel):
+        for widget in (self.backBtn, self.playBtn, self.forwardBtn, self.frameSlider, self.frameNumLabel,
+                       self.followCheckBox):
             controls.addWidget(widget)
 
         left = QVBoxLayout()
-        left.addWidget(self.view, 1)
+        left.addWidget(self.headerLabel)
+        left.addLayout(display, 1)
+        left.addWidget(self.summaryPanel)
+        left.addWidget(self.footerLabel)
         left.addLayout(controls)
 
         self.loadBtn = QPushButton('載入影片')
@@ -118,14 +143,15 @@ class GaitTabControl(QWidget):
         self.infoLabel.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         panel = QGroupBox('步態分析')
-        panel.setFixedWidth(320)
+        panel.setFixedWidth(300)
         side = QVBoxLayout(panel)
         for widget in (self.fileLabel, self.loadBtn, self.exportBtn, self.openFolderBtn, self.cancelBtn,
                        self.progressBar, self.statusLabel, self.infoLabel):
             side.addWidget(widget)
         side.addStretch(1)
         hint = QLabel('影片需為側面拍攝、受試者在畫面中左右來回行走。檔名為 VIDIMU 格式'
-                      '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。')
+                      '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n\n'
+                      '鍵盤：A／D 逐格、空白鍵播放。拖曳或點擊曲線可跳到該時間。')
         hint.setWordWrap(True)
         hint.setStyleSheet('color: #777777;')
         side.addWidget(hint)
@@ -143,6 +169,9 @@ class GaitTabControl(QWidget):
         self.backBtn.clicked.connect(lambda: self.frameSlider.setValue(self.frameSlider.value() - 1))
         self.forwardBtn.clicked.connect(lambda: self.frameSlider.setValue(self.frameSlider.value() + 1))
         self.frameSlider.valueChanged.connect(self.showFrame)
+        for plot in (self.hipPlot, self.kneePlot):
+            plot.seekRequested.connect(self.seekTime)
+        self.followCheckBox.toggled.connect(self.followCurrent)
 
     def setLoaded(self, loaded):
         busy = self.worker is not None
@@ -162,10 +191,6 @@ class GaitTabControl(QWidget):
             self.togglePlay()
         else:
             super().keyPressEvent(event)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.updateView()
 
     # ------------------------------------------------------------- 背景工作
 
@@ -235,15 +260,27 @@ class GaitTabControl(QWidget):
         if self.cap is not None:
             self.cap.release()
         self.analysis = analysis
-        self.renderer = analysis.renderer()
+        self.renderer = renderer = analysis.renderer()
         self.cap = cv2.VideoCapture(analysis.video_path)
         self.current_frame = -1
-        n_frames = self.renderer.n_frames
+        fps = analysis.result.fps
+        times = np.arange(renderer.n_frames) / fps
+
+        hip_markers = [(f / fps, v, f'最大伸展 {-v:.0f}°') for f, v in renderer.hip_markers]
+        self.hipPlot.setSeries(times, [(renderer.hip, VIDEO_COLOR, 2.5, '影片', False)], hip_markers)
+        knee = [(renderer.knee, VIDEO_COLOR, 2.5, '影片（單一鏡頭）', False)]
+        if renderer.imu_knee is not None:
+            knee.append((renderer.imu_knee, IMU_COLOR, 2, '穿戴式感測器 IMU', True))
+        self.kneePlot.setSeries(times, knee)
+        self.summaryPanel.setValues(analysis.values)
+        self.headerLabel.setText(analysis.header)
+        self.footerLabel.setText(VIDIMU_FOOTER if analysis.trial is not None else '')
+
         blocked = self.frameSlider.blockSignals(True)
-        self.frameSlider.setRange(0, max(n_frames - 1, 0))
+        self.frameSlider.setRange(0, max(renderer.n_frames - 1, 0))
         self.frameSlider.setValue(0)
         self.frameSlider.blockSignals(blocked)
-        self.timer.setInterval(max(1, int(round(1000 / analysis.result.fps))))
+        self.timer.setInterval(max(1, int(round(1000 / fps))))
         self.statusLabel.setText('分析完成')
         self.infoLabel.setText(self.summaryText(analysis))
         self.showFrame(0)
@@ -302,8 +339,13 @@ class GaitTabControl(QWidget):
             return
         self.frameSlider.setValue(self.frameSlider.value() + 1)
 
+    def seekTime(self, t):
+        if self.renderer is not None:
+            self.frameSlider.setValue(int(round(max(t, 0.0) * self.analysis.result.fps)))
+
     def showFrame(self, frame_idx):
-        if self.renderer is None or not 0 <= frame_idx < self.renderer.n_frames:
+        renderer = self.renderer
+        if renderer is None or not 0 <= frame_idx < renderer.n_frames:
             return
         if frame_idx != self.current_frame + 1:
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -312,13 +354,28 @@ class GaitTabControl(QWidget):
             self.stopPlay()
             return
         self.current_frame = frame_idx
-        canvas = self.renderer.render_frame(frame_idx, frame)
-        height, width = canvas.shape[:2]
-        image = QImage(canvas.data, width, height, 3 * width, QImage.Format_RGB888).rgbSwapped()
-        self.pixmap = QPixmap.fromImage(image)
-        self.frameNumLabel.setText(f'{frame_idx}/{self.renderer.n_frames - 1}')
-        self.updateView()
+        result = renderer.result
+        bbox = renderer.bboxes[frame_idx] if renderer.bboxes is not None else np.full(4, np.nan)
+        frame = blur_face(frame, result.keypoints[frame_idx], bbox)
+        near_side = renderer.near_by_frame.get(frame_idx)
+        labels = []
+        if near_side:
+            for lag in range(8):            # 著地／離地後 8 格內在腳邊標示
+                for event, text, part in (('HS', '著地', 'heel'), ('TO', '離地', 'toe')):
+                    if (frame_idx - lag, event) in renderer.event_frames:
+                        p = result.xy[frame_idx, side_index(part, near_side)]
+                        if np.isfinite(p).all():
+                            labels.append((text, p[0], p[1]))
+        self.view.setFrame(frame, result.xy[frame_idx], near_side, labels)
+        t = frame_idx / result.fps
+        for plot in (self.hipPlot, self.kneePlot):
+            plot.setTimeCursor(t)
+        self.followCurrent()
+        self.frameNumLabel.setText(f'{frame_idx}/{renderer.n_frames - 1}　{t:.2f} 秒')
 
-    def updateView(self):
-        if self.pixmap is not None:
-            self.view.setPixmap(self.pixmap.scaled(self.view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    def followCurrent(self):
+        if self.renderer is None or not self.followCheckBox.isChecked() or self.current_frame < 0:
+            return
+        t = self.current_frame / self.analysis.result.fps
+        start = max(0.0, t - FOLLOW_BEFORE_S)
+        self.hipPlot.setXRange(start, start + FOLLOW_BEFORE_S + FOLLOW_AFTER_S, padding=0)
