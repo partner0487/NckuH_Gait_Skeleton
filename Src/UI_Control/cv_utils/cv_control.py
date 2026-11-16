@@ -15,6 +15,10 @@ try:
 except ImportError:
     _has_easypyspin = False
 
+# 載入影片時預設開在 Db/Record（輸出資料夾），用絕對路徑，不受啟動位置影響
+RECORD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'Db', 'Record'))
+
+
 class Camera:
     def __init__(self, camera_idx:int = 0):
         self.camera_idx = camera_idx
@@ -122,7 +126,7 @@ class VideoLoader:
     def loadVideo(self, video_path:str = None):
         options = QFileDialog.Options()
         if video_path is None:
-            video_path, _ = QFileDialog.getOpenFileName(None, "Select Video File", "", "Video Files (*.mp4 *.avi);;All Files (*)", options=options)
+            video_path, _ = QFileDialog.getOpenFileName(None, "Select Video File", RECORD_DIR if os.path.isdir(RECORD_DIR) else "", "Video Files (*.mp4 *.avi);;All Files (*)", options=options)
             if not video_path:
                 return False
         self.video_path = video_path
