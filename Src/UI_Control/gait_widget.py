@@ -18,6 +18,7 @@ from gait_analysis.gait import side_index                 # noqa: E402
 from gait_analysis.pipeline import analyze_video          # noqa: E402
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
 from gait_analysis.style import VIDIMU_FOOTER             # noqa: E402
+from gait_analysis.vidimu import OUTPUT_ROOT              # noqa: E402
 from gait_views import IMU_COLOR, VIDEO_COLOR, AnglePlot, FrameView, SummaryPanel   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
@@ -239,7 +240,8 @@ class GaitTabControl(QWidget):
     # ----------------------------------------------------------------- 分析
 
     def loadVideo(self):
-        path, _ = QFileDialog.getOpenFileName(self, '選擇側拍行走影片', '', 'Video Files (*.mp4 *.avi *.mov);;All Files (*)')
+        start = OUTPUT_ROOT if os.path.isdir(OUTPUT_ROOT) else ''        # 預設開在 Db/Record，與 2D 分頁相同
+        path, _ = QFileDialog.getOpenFileName(self, '選擇側拍行走影片', start, 'Video Files (*.mp4 *.avi *.mov);;All Files (*)')
         if not path:
             return
         stem, ext = os.path.splitext(os.path.basename(path))
