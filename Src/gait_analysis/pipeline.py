@@ -26,7 +26,6 @@ from gait_analysis.style import ACTIVITY_NAMES, VIDIMU_FOOTER
 CACHE_DIR = vidimu.CACHE_DIR
 TARGETS_PATH = os.path.join(os.path.dirname(CACHE_DIR), 'targets.json')     # 每支影片手動點選的目標人物
 VIDIMU_NAME = re.compile(r'^(S\d+)_(A\d+)_(T\d+)$')
-VIDEO_EXTS = ('.mp4', '.avi', '.mov')
 DERIVED_SUFFIXES = ('_Sk26', '_demo')         # 已疊上骨架／圖表的輸出影片，不能再拿來分析
 SAVED = 'saved'                                # analyze_video 的 person_id：沿用上次點選的目標
 KEYPOINT_NAMES_ZH = ['鼻子', '左眼', '右眼', '左耳', '右耳', '左肩', '右肩', '左肘', '右肘', '左腕', '右腕',
@@ -34,20 +33,8 @@ KEYPOINT_NAMES_ZH = ['鼻子', '左眼', '右眼', '左耳', '右耳', '左肩',
                      '右大腳趾', '左小腳趾', '右小腳趾', '左腳跟', '右腳跟']
 
 
-def natural_key(name):
-    """S01_A01_T2 排在 S01_A01_T10 前面。"""
-    return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
-
-
 def is_derived_video(path):
     return os.path.splitext(os.path.basename(path))[0].endswith(DERIVED_SUFFIXES)
-
-
-def list_videos(folder):
-    """資料夾中可分析的影片（略過 _Sk26、_demo），依自然順序排列。"""
-    names = [n for n in os.listdir(folder)
-             if n.lower().endswith(VIDEO_EXTS) and not is_derived_video(n)]
-    return [os.path.join(folder, n) for n in sorted(names, key=natural_key)]
 
 
 def find_vidimu_trial(video_path):
@@ -214,9 +201,6 @@ class GaitAnalysis:
 
     def persons_at(self, frame_idx):
         return self.persons.get(frame_idx, [])
-
-    def target_id(self):
-        return self.person_id if self.person_id is not None else self.auto_id
 
     def renderer(self):
         return DemoRenderer(self.result, self.values, imu_knee=self.imu_knee, bboxes=self.bboxes,

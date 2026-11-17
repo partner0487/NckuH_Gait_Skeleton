@@ -53,11 +53,6 @@ class FrameView(QWidget):
         scale = target.width() / self.image.width()
         self.imageClicked.emit((event.pos().x() - target.x()) / scale, (event.pos().y() - target.y()) / scale)
 
-    def clear(self, placeholder=''):
-        self.image = None
-        self.placeholder = placeholder
-        self.update()
-
     def targetRect(self):
         """影像在元件內等比例置中的位置。"""
         if self.image is None:

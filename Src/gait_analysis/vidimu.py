@@ -13,7 +13,6 @@ VIDIMU_ROOT = os.path.join(PROJECT_ROOT, 'Db_NckuH_Gait')
 VIDEO_DIR = os.path.join(VIDIMU_ROOT, 'Db_VideoSmallSize', 'Db_VideoSOriginal')
 IMU_DIR = os.path.join(VIDIMU_ROOT, 'Database', 'VideoAndImus')
 SYNC_INFO = os.path.join(VIDIMU_ROOT, 'Analysis', 'VideoAndImuSync', 'infoToSync.csv')
-BODY_CSV = os.path.join(VIDIMU_ROOT, 'Database', 'BodyMeasurements.csv')
 # 與 GUI 共用 Db/Record：一支影片一個資料夾；底線開頭的是共用資料夾，不是影片
 OUTPUT_ROOT = os.path.join(PROJECT_ROOT, 'Db', 'Record')
 CACHE_DIR = os.path.join(OUTPUT_ROOT, '_cache', 'keypoints')
@@ -120,9 +119,3 @@ def imu_on_video_frames(trial: Trial, n_frames: int, columns, extra_lag_frames=0
     t_query = (np.arange(n_frames) - extra_lag_frames) / VIDEO_FPS - sync_offset(trial)
     return {col: np.interp(t_query, mot['time'].to_numpy(), mot[col].to_numpy(), left=np.nan, right=np.nan)
             for col in columns}
-
-
-def body_measurements(subject: str):
-    df = pd.read_csv(BODY_CSV)
-    row = df.loc[df['Subject'] == subject]
-    return row.iloc[0].to_dict() if not row.empty else None

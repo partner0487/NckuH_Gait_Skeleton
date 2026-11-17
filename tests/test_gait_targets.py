@@ -154,14 +154,6 @@ class TargetSelectionTests(OutputRootMixin, unittest.TestCase):
 
 
 class BatchListTests(unittest.TestCase):
-    def test_natural_order_and_skip_rendered(self):
-        with tempfile.TemporaryDirectory() as folder:
-            for name in ('S01_A01_T10.mp4', 'S01_A01_T2.mp4', 'S01_A01_T2_Sk26.mp4', 'S01_A01_T1_demo.mp4',
-                         'notes.txt', 'S01_A01_T1.AVI'):
-                open(os.path.join(folder, name), 'wb').close()
-            names = [os.path.basename(p) for p in pipeline.list_videos(folder)]
-        self.assertEqual(names, ['S01_A01_T1.AVI', 'S01_A01_T2.mp4', 'S01_A01_T10.mp4'])
-
     def test_gait_videos_takes_every_a01_trial_of_each_subject(self):
         from gait_analysis.vidimu import gait_videos
         with tempfile.TemporaryDirectory() as root:
