@@ -1,4 +1,4 @@
-"""批次萃取 VIDIMU 影片的關節點，並寫出每支影片的基本輸出檔（與 GUI「批量分析資料夾」相同）。
+"""批次萃取 VIDIMU 有 IMU 受試者的關節點，並寫出每支影片的輸出檔（與 GUI 載入影片時相同）。
 
 用法（專案根目錄）：
     python Src/gait_analysis/run_extract.py                 # 所有 IMU 受試者的 A01
@@ -12,19 +12,9 @@ import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import numpy as np                                                          # noqa: E402
-
 from gait_analysis import vidimu                                            # noqa: E402
 from gait_analysis.extract_keypoints import load_model                      # noqa: E402
-from gait_analysis.pipeline import analyze_video, cache_path                # noqa: E402
-
-
-def needs_extract(video_path):
-    path = cache_path(video_path)
-    if not os.path.isfile(path):
-        return True
-    with np.load(path) as npz:
-        return 'person_id' not in npz.files          # 舊格式：只有單人、沒有追蹤 ID
+from gait_analysis.pipeline import analyze_video, cache_path, has_current_cache   # noqa: E402
 
 
 def main():
@@ -35,7 +25,7 @@ def main():
     args = parser.parse_args()
 
     trials = vidimu.find_trials(args.activity, args.subjects)
-    todo = [t for t in trials if args.overwrite or needs_extract(t.video_path)]
+    todo = [t for t in trials if args.overwrite or not has_current_cache(t.video_path)]
     print(f'{len(trials)} 個試驗，需萃取 {len(todo)} 個', flush=True)
     if not todo:
         return

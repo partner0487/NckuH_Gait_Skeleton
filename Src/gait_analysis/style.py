@@ -3,6 +3,8 @@ import os
 
 VIDIMU_FOOTER = '資料來源：VIDIMU（CC BY 4.0）｜公開資料，年輕健康成人；與 IMU 一致性為初步結果'
 ACTIVITY_NAMES = {'A01': '往前走', 'A02': '往後走', 'A03': '沿線斜走'}
+VIDEO_COLOR = '#1f77b4'         # 影片角度曲線（GUI、PNG、展示影片共用）
+IMU_COLOR = '#d62728'           # IMU 角度曲線
 
 
 def find_cjk_font():

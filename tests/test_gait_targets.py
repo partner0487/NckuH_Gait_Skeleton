@@ -115,6 +115,13 @@ class TargetSelectionTests(OutputRootMixin, unittest.TestCase):
         self.assertEqual(len(records[0]['keypoints'][0]), 4)
         self.assertEqual(sorted({r['person_id'] for r in records}), [1, 2])
 
+    def test_persons_at_marks_only_the_target(self):
+        manual = pipeline.analyze_video(self.video, person_id=2, write_outputs=False)
+        self.assertEqual({pid: t for pid, _, t in manual.persons_at(20)}, {1: False, 2: True})
+        auto = pipeline.analyze_video(self.video, person_id=None, write_outputs=False)
+        self.assertEqual(sum(t for _, _, t in auto.persons_at(20)), 1)
+        self.assertEqual([t for _, _, t in auto.persons_at(5)], [True])       # 只有一人的格
+
     def test_record_copy_reads_same_cache(self):
         pipeline.analyze_video(self.video, person_id=2)
         copy = os.path.join(self.out, 'walk', 'walk.mp4')

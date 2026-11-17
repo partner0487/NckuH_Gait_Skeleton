@@ -11,8 +11,6 @@ from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayou
 from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
 from gait_analysis.style import panel_items
 
-VIDEO_COLOR = '#1f77b4'
-IMU_COLOR = '#d62728'
 NEAR_COLOR = QColor(255, 140, 0)
 FAR_COLOR = QColor(170, 170, 170)
 TRUNK_COLOR = QColor(90, 90, 90)

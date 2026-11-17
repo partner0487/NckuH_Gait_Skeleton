@@ -7,14 +7,11 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
-from gait_analysis.style import FONT_PATH, VIDIMU_FOOTER, panel_items
+from gait_analysis.style import FONT_PATH, IMU_COLOR, VIDEO_COLOR, VIDIMU_FOOTER, panel_items
 
 font_manager.fontManager.addfont(FONT_PATH)
 FONT_NAME = font_manager.FontProperties(fname=FONT_PATH).get_name()
 RC = {'font.family': FONT_NAME, 'axes.unicode_minus': False}
-
-VIDEO_COLOR = '#1f77b4'
-IMU_COLOR = '#d62728'
 
 
 def _save(fig, out_path):

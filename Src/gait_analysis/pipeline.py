@@ -26,15 +26,17 @@ from gait_analysis.style import ACTIVITY_NAMES, VIDIMU_FOOTER
 CACHE_DIR = vidimu.CACHE_DIR
 TARGETS_PATH = os.path.join(os.path.dirname(CACHE_DIR), 'targets.json')     # 每支影片手動點選的目標人物
 VIDIMU_NAME = re.compile(r'^(S\d+)_(A\d+)_(T\d+)$')
-DERIVED_SUFFIXES = ('_Sk26', '_demo')         # 已疊上骨架／圖表的輸出影片，不能再拿來分析
+DERIVED_VIDEOS = {'_Sk26': '已疊上骨架的影片', '_demo': '匯出的展示影片'}   # 輸出影片，不能再拿來分析
 SAVED = 'saved'                                # analyze_video 的 person_id：沿用上次點選的目標
 KEYPOINT_NAMES_ZH = ['鼻子', '左眼', '右眼', '左耳', '右耳', '左肩', '右肩', '左肘', '右肘', '左腕', '右腕',
                      '左髖', '右髖', '左膝', '右膝', '左踝', '右踝', '頭部', '頸部', '臀部', '左大腳趾',
                      '右大腳趾', '左小腳趾', '右小腳趾', '左腳跟', '右腳跟']
 
 
-def is_derived_video(path):
-    return os.path.splitext(os.path.basename(path))[0].endswith(DERIVED_SUFFIXES)
+def derived_suffix(path):
+    """輸出影片（_Sk26、_demo）回傳其後綴，原始影片回傳 None。"""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return next((suffix for suffix in DERIVED_VIDEOS if stem.endswith(suffix)), None)
 
 
 def find_vidimu_trial(video_path):
@@ -200,7 +202,11 @@ class GaitAnalysis:
         return bool(self.persons)
 
     def persons_at(self, frame_idx):
-        return self.persons.get(frame_idx, [])
+        """[(ID, 人物框, 是否為目標)]；目標＝人物框與該格目標人物框相同者。"""
+        target = self.bboxes[frame_idx]
+        has_target = bool(np.isfinite(target).all())
+        return [(person_id, box, has_target and bool(np.allclose(box, target)))
+                for person_id, box in self.persons.get(frame_idx, [])]
 
     def renderer(self):
         return DemoRenderer(self.result, self.values, imu_knee=self.imu_knee, bboxes=self.bboxes,
@@ -278,8 +284,10 @@ def write_base_outputs(analysis, data, extracted=False, progress=None, should_st
     if extracted or not os.path.isfile(f'{prefix}.json') or not os.path.isfile(f'{prefix}.csv'):
         write_skeleton_files(data, prefix)
     sk26 = f'{prefix}_Sk26.mp4'
-    stamp_path = os.path.splitext(cache_path(analysis.video_path))[0] + '.sk26.txt'
-    stamp = f'{analysis.person_id if analysis.person_id is not None else "auto"}|'             f'{os.path.getmtime(cache_path(analysis.video_path)):.0f}'
+    cache = cache_path(analysis.video_path)
+    stamp_path = os.path.splitext(cache)[0] + '.sk26.txt'
+    target = analysis.person_id if analysis.person_id is not None else 'auto'
+    stamp = f'{target}|{os.path.getmtime(cache):.0f}'
     try:
         with open(stamp_path, encoding='utf-8') as f:
             current = f.read() == stamp

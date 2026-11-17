@@ -16,12 +16,12 @@ from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLa
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from gait_analysis.gait import side_index                 # noqa: E402
-from gait_analysis.pipeline import SAVED, analyze_video, has_current_cache, is_derived_video   # noqa: E402
+from gait_analysis.pipeline import (DERIVED_VIDEOS, SAVED, analyze_video, derived_suffix,   # noqa: E402
+                                    has_current_cache)
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
-from gait_analysis.style import VIDIMU_FOOTER             # noqa: E402
+from gait_analysis.style import IMU_COLOR, VIDEO_COLOR, VIDIMU_FOOTER   # noqa: E402
 from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_videos   # noqa: E402
-from gait_views import IMU_COLOR, VIDEO_COLOR, AnglePlot, FrameView, SummaryPanel   # noqa: E402
+from gait_views import AnglePlot, FrameView, SummaryPanel   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
 
@@ -290,14 +290,15 @@ class GaitTabControl(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, '選擇側拍行走影片', start, 'Video Files (*.mp4 *.avi *.mov);;All Files (*)')
         if not path:
             return
-        stem, ext = os.path.splitext(os.path.basename(path))
-        for suffix, kind in (('_demo', '匯出的展示影片'), ('_Sk26', '已疊上骨架的影片')):
-            if is_derived_video(path) and stem.endswith(suffix):
-                # 畫面已疊上圖表或骨架，再分析一次得到的數字沒有意義
-                original = os.path.join(os.path.dirname(path), stem[:-len(suffix)] + ext)
-                hint = f'\n同資料夾的原始影片：{os.path.basename(original)}' if os.path.isfile(original) else ''
-                QMessageBox.warning(self, '請載入原始影片', f'{os.path.basename(path)} 是{kind}，不能再拿來分析。{hint}')
-                return
+        suffix = derived_suffix(path)
+        if suffix:
+            # 畫面已疊上圖表或骨架，再分析一次得到的數字沒有意義
+            stem, ext = os.path.splitext(os.path.basename(path))
+            original = os.path.join(os.path.dirname(path), stem[:-len(suffix)] + ext)
+            hint = f'\n同資料夾的原始影片：{os.path.basename(original)}' if os.path.isfile(original) else ''
+            QMessageBox.warning(self, '請載入原始影片',
+                                f'{os.path.basename(path)} 是{DERIVED_VIDEOS[suffix]}，不能再拿來分析。{hint}')
+            return
         self.stopPlay()
         self.fileLabel.setText(f'檔名：{os.path.basename(path)}')
         self.infoLabel.setText('')
@@ -309,7 +310,7 @@ class GaitTabControl(QWidget):
         if self.analysis is None or self.worker is not None or not self.analysis.can_select:
             return
         hits = [(float((b[2] - b[0]) * (b[3] - b[1])), person_id)
-                for person_id, b in self.analysis.persons_at(self.current_frame)
+                for person_id, b, _ in self.analysis.persons_at(self.current_frame)
                 if b[0] <= x <= b[2] and b[1] <= y <= b[3]]
         if not hits:
             return
@@ -476,20 +477,8 @@ class GaitTabControl(QWidget):
         result = renderer.result
         bbox = renderer.bboxes[frame_idx] if renderer.bboxes is not None else np.full(4, np.nan)
         frame = blur_face(frame, result.keypoints[frame_idx], bbox)
-        near_side = renderer.near_by_frame.get(frame_idx)
-        labels = []
-        if near_side:
-            for lag in range(8):            # 著地／離地後 8 格內在腳邊標示
-                for event, text, part in (('HS', '著地', 'heel'), ('TO', '離地', 'toe')):
-                    if (frame_idx - lag, event) in renderer.event_frames:
-                        p = result.xy[frame_idx, side_index(part, near_side)]
-                        if np.isfinite(p).all():
-                            labels.append((text, p[0], p[1]))
-        target_box = renderer.bboxes[frame_idx] if renderer.bboxes is not None else None
-        persons = [(person_id, box, target_box is not None and bool(np.isfinite(target_box).all())
-                    and bool(np.allclose(box, target_box)))
-                   for person_id, box in self.analysis.persons_at(frame_idx)]
-        self.view.setFrame(frame, result.xy[frame_idx], near_side, labels, persons)
+        self.view.setFrame(frame, result.xy[frame_idx], renderer.near_by_frame.get(frame_idx),
+                           renderer.event_labels(frame_idx), self.analysis.persons_at(frame_idx))
         t = frame_idx / result.fps
         for plot in (self.hipPlot, self.kneePlot):
             plot.setTimeCursor(t)

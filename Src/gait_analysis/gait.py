@@ -168,6 +168,11 @@ def joint_angles(xy, direction, side):
     }
 
 
+def near_side_by_frame(passes):
+    """{格: 該趟近側腿 'L'/'R'}；不在任何趟內的格不在字典中。"""
+    return {f: p.near_side for p in passes for f in range(p.start, p.end)}
+
+
 def direction_per_frame(passes, n_frames):
     d = np.full(n_frames, np.nan)
     for p in passes:

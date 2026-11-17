@@ -9,8 +9,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
-from gait_analysis.style import FONT_PATH, VIDIMU_FOOTER, panel_items
+from gait_analysis.gait import KPT, SKELETON_LINKS, near_side_by_frame, side_index
+from gait_analysis.style import FONT_PATH, IMU_COLOR, VIDEO_COLOR, VIDIMU_FOOTER, panel_items
 
 W, H = 1280, 720
 VIDEO_BOX = (0, 56, 640, 536)                      # x0, y0, x1, y1
@@ -23,8 +23,15 @@ BG = (255, 255, 255)
 INK = (40, 40, 40)
 MUTED = (120, 120, 120)
 GRID = (225, 225, 225)
-VIDEO_BGR = (180, 119, 31)                         # #1f77b4
-IMU_BGR = (40, 39, 214)                            # #d62728
+
+
+def _bgr(hex_color):
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return b, g, r
+
+
+VIDEO_BGR = _bgr(VIDEO_COLOR)
+IMU_BGR = _bgr(IMU_COLOR)
 NEAR_BGR = (0, 140, 255)
 FAR_BGR = (170, 170, 170)
 FULL_BGR = (225, 225, 225)                         # 完整骨架底層（以 70% 不透明度疊上）
@@ -32,6 +39,8 @@ FULL_EDGE_BGR = (70, 70, 70)
 MARK_BGR = (0, 160, 0)
 
 HEAD_KPTS = (0, 1, 2, 3, 4, 17)
+EVENT_LABELS = (('HS', '著地', 'heel'), ('TO', '離地', 'toe'))
+EVENT_HOLD_FRAMES = 8                              # 著地／離地後幾格內持續標示
 
 
 class _Fonts:
@@ -163,8 +172,6 @@ def _put_labels(canvas, labels):
     return cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
 
-
-
 class DemoRenderer:
     """逐格合成展示畫面；GUI 播放與匯出影片共用。"""
 
@@ -179,7 +186,7 @@ class DemoRenderer:
         self.footer = footer
         self.hip = near_series(result, {s: result.angles[s]['hip'] for s in ('L', 'R')})
         self.knee = near_series(result, {s: result.angles[s]['knee'] for s in ('L', 'R')})
-        self.near_by_frame = {f: p.near_side for p in result.passes for f in range(p.start, p.end)}
+        self.near_by_frame = near_side_by_frame(result.passes)
 
         strides = result.strides
         self.hip_markers = []
@@ -194,6 +201,20 @@ class DemoRenderer:
     @property
     def n_frames(self):
         return len(self.result.xy)
+
+    def event_labels(self, frame_idx):
+        """近側腿著地／離地後幾格內，在腳跟／腳尖旁標示：[(文字, 影像 x, 影像 y)]。"""
+        near_side = self.near_by_frame.get(frame_idx)
+        if not near_side:
+            return []
+        labels = []
+        for lag in range(EVENT_HOLD_FRAMES):
+            for event, text, part in EVENT_LABELS:
+                if (frame_idx - lag, event) in self.event_frames:
+                    p = self.result.xy[frame_idx, side_index(part, near_side)]
+                    if np.isfinite(p).all():
+                        labels.append((text, p[0], p[1]))
+        return labels
 
     def render_frame(self, frame_idx, frame):
         """frame 為原始影像（BGR），回傳 1280×720 的展示畫面。"""
@@ -216,13 +237,8 @@ class DemoRenderer:
             (20, 14, '一台鏡頭側拍走路 → 自動算出關節角度', 26, INK, 'la'),
             (W - 20, 18, self.header_right, 20, MUTED, 'ra'),
         ]
-        for lag in range(0, 8):
-            for event, text in (('HS', '著地'), ('TO', '離地')):
-                if (frame_idx - lag, event) in self.event_frames and near_side:
-                    part = 'heel' if event == 'HS' else 'toe'
-                    p = result.xy[frame_idx, side_index(part, near_side)]
-                    if np.isfinite(p).all():
-                        labels.append((vx0 + p[0] * sx - 18, vy0 + p[1] * sy + 10, text, 18, (0, 90, 200), 'la'))
+        for text, x, y in self.event_labels(frame_idx):
+            labels.append((vx0 + x * sx - 18, vy0 + y * sy + 10, text, 18, (0, 90, 200), 'la'))
         if near_side:
             cv2.rectangle(canvas, (vx0 + 6, vy0 + 6), (vx0 + 196, vy0 + 34), (50, 50, 50), -1)
             labels.append((vx0 + 14, vy0 + 10, f'近側腿：{"左" if near_side == "L" else "右"}腳（橘色）',
@@ -276,7 +292,7 @@ def render_skeleton_video(analysis, out_path, progress=None, should_stop=None):
     先寫到暫存檔，完成才改名，中途取消不會留下不完整的影片。中止時回傳 False。
     """
     result = analysis.result
-    near_by_frame = {f: p.near_side for p in result.passes for f in range(p.start, p.end)}
+    near_by_frame = near_side_by_frame(result.passes)
     cap = cv2.VideoCapture(analysis.video_path)
     width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     temp = out_path + '.part.mp4'
@@ -287,9 +303,7 @@ def render_skeleton_video(analysis, out_path, progress=None, should_stop=None):
             ok, frame = cap.read()
             if not ok:
                 break
-            target_box = analysis.bboxes[frame_idx]
-            for person_id, box in analysis.persons_at(frame_idx):
-                is_target = np.isfinite(target_box).all() and np.allclose(box, target_box)
+            for person_id, box, is_target in analysis.persons_at(frame_idx):
                 color, thickness = (NEAR_BGR, 2) if is_target else (FAR_BGR, 1)
                 x0, y0, x1, y1 = (int(v) for v in box)
                 cv2.rectangle(frame, (x0, y0), (x1, y1), color, thickness, cv2.LINE_AA)
