@@ -18,7 +18,7 @@ import pandas as pd
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gait_analysis import plots, vidimu
-from gait_analysis.pipeline import analyze_video
+from gait_analysis.pipeline import agreement_row, analyze_video, write_agreement_table
 from gait_analysis.render_demo import render
 from gait_analysis.style import ACTIVITY_NAMES
 
@@ -49,7 +49,7 @@ def main():
             print(f'{trial.name}: 沒有有效步態週期，無法與 IMU 比對，略過', flush=True)
             continue
         agreement, values = analysis.agreement, analysis.values
-        rows.append({'subject': trial.subject, **agreement, **values})
+        rows.append(agreement_row(analysis))
         analyses[trial.name] = analysis
         print(f'{trial.name}: {values["passes"]} 趟、近側週期 {values["near_strides"]}、'
               f'膝 r={agreement["knee_pearson_r"]:.2f} RMSE={agreement["knee_rmse"]:.1f}° '
@@ -61,10 +61,7 @@ def main():
         print('沒有可比對的試驗')
         return
     table = pd.DataFrame(rows)
-    os.makedirs(vidimu.SUMMARY_DIR, exist_ok=True)
-    table_path = os.path.join(vidimu.SUMMARY_DIR, f'agreement_{args.activity}.csv')
-    table.to_csv(table_path, index=False, float_format='%.3f')
-    print(f'彙總表：{table_path}')
+    print(f'彙總表：{write_agreement_table(rows, args.activity)}')
 
     if args.demo_subjects:
         demo = [name for name in analyses if name.split('_')[0] in args.demo_subjects]

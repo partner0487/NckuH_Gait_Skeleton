@@ -271,3 +271,92 @@ class ClickTests(OutputRootMixin, unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def imu_row(trial, knee_r, rmse=3.0):
+    return {'subject': trial[:3], 'trial': trial, 'near_strides': 8, 'knee_pearson_r': knee_r,
+            'knee_rmse_centered': rmse, 'hip_pearson_r': 0.9, 'hip_rmse_centered': 4.0, 'cadence': 100.0}
+
+
+class ImuAnalysisTests(unittest.TestCase):
+    """「分析 IMU 影片」：結果表、彙總表、取消時不覆寫。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        p = patch.object(vidimu, 'SUMMARY_DIR', self.tmp.name)
+        p.start()
+        self.addCleanup(p.stop)
+        self.widget = GaitTabControl(None)
+        self.videos = ['D:/v/S40_A01_T01.mp4', 'D:/v/S41_A01_T02.mp4', 'D:/v/S42_A01_T01.mp4']
+
+    def test_agreement_row(self):
+        trial = vidimu.Trial('S40', 'A01', 'T01')
+        no_imu = SimpleNamespace(agreement=None, trial=trial, values={})
+        self.assertIsNone(pipeline.agreement_row(no_imu))
+        ok = SimpleNamespace(agreement={'trial': trial.name, 'knee_pearson_r': 0.9}, trial=trial,
+                             values={'cadence': 100.0})
+        self.assertEqual(pipeline.agreement_row(ok),
+                         {'subject': 'S40', 'trial': 'S40_A01_T01', 'knee_pearson_r': 0.9, 'cadence': 100.0})
+
+    def test_batch_thread_returns_imu_rows(self):
+        from gait_widget import BatchThread
+        trial = vidimu.Trial('S40', 'A01', 'T01')
+        done = SimpleNamespace(agreement={'trial': trial.name}, trial=trial, values={})
+        worker = BatchThread(None, self.videos[:2])
+        received = []
+        worker.succeeded.connect(received.append)
+        with patch('gait_widget.analyze_video', side_effect=[done, RuntimeError('壞檔')]):
+            worker.run()
+        (results,) = received
+        self.assertEqual(results[0], ('S40_A01_T01.mp4', None, {'subject': 'S40', 'trial': 'S40_A01_T01'}))
+        self.assertEqual(results[1], ('S41_A01_T02.mp4', 'RuntimeError: 壞檔', None))
+
+    def run_done(self, results):
+        with patch('gait_widget.ImuSummaryDialog') as dialog:
+            dialog.return_value.exec_.return_value = 0
+            self.widget.onImuDone(results, self.videos)
+        rows, paths, notes, _ = dialog.call_args.args
+        return rows, paths, notes
+
+    def test_complete_run_writes_summary_and_lists_problems(self):
+        results = [('S40_A01_T01.mp4', None, imu_row('S40_A01_T01', 0.95)),
+                   ('S41_A01_T02.mp4', None, None),
+                   ('S42_A01_T01.mp4', 'OSError: x', None)]
+        rows, paths, notes = self.run_done(results)
+        self.assertEqual([r['trial'] for r in rows], ['S40_A01_T01'])
+        self.assertEqual(paths['S42_A01_T01'], 'D:/v/S42_A01_T01.mp4')
+        self.assertTrue(any('S42_A01_T01.mp4：OSError' in n for n in notes))
+        self.assertTrue(any('S41_A01_T02.mp4：沒有有效步態週期' in n for n in notes))
+        table = os.path.join(self.tmp.name, 'agreement_A01.csv')
+        self.assertTrue(os.path.isfile(table))
+        import pandas as pd
+        self.assertEqual(pd.read_csv(table)['trial'].tolist(), ['S40_A01_T01'])
+
+    def test_cancelled_run_keeps_existing_summary(self):
+        table = os.path.join(self.tmp.name, 'agreement_A01.csv')
+        with open(table, 'w') as f:
+            f.write('old')
+        _, _, notes = self.run_done([('S40_A01_T01.mp4', None, imu_row('S40_A01_T01', 0.95))])
+        with open(table) as f:
+            self.assertEqual(f.read(), 'old')
+        self.assertTrue(any('已取消' in n for n in notes))
+
+    def test_dialog_sorts_numbers_and_opens_on_double_click(self):
+        from gait_views import ImuSummaryDialog
+        rows = [imu_row('S40_A01_T01', 0.95), imu_row('S41_A01_T02', float('nan')), imu_row('S42_A01_T01', 0.6)]
+        paths = {r['trial']: f'D:/v/{r["trial"]}.mp4' for r in rows}
+        dialog = ImuSummaryDialog(rows[::-1], paths)
+        self.assertEqual(dialog.table.item(0, 0).text(), 'S40_A01_T01')          # 預設依試驗名稱遞增
+        dialog.table.sortItems(2, Qt.AscendingOrder)
+        self.assertEqual([dialog.table.item(i, 0).text() for i in range(3)],
+                         ['S42_A01_T01', 'S40_A01_T01', 'S41_A01_T02'])       # 沒有數值的排最後
+        self.assertEqual(dialog.table.item(2, 2).text(), '—')
+        dialog.table.cellDoubleClicked.emit(1, 3)
+        self.assertEqual(dialog.selected_path, 'D:/v/S40_A01_T01.mp4')
+
+    def test_imu_button_sits_between_load_and_batch(self):
+        layout = self.widget.loadBtn.parentWidget().layout()
+        order = [layout.indexOf(w) for w in (self.widget.loadBtn, self.widget.imuBtn, self.widget.batchBtn)]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(order[1] - order[0], 1)

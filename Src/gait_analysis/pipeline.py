@@ -213,6 +213,22 @@ class GaitAnalysis:
                             header_right=self.header, footer=VIDIMU_FOOTER if self.trial is not None else '')
 
 
+def agreement_row(analysis):
+    """IMU 一致性彙總表的一列（一致性 + 數字面板）；沒有 IMU 對照時回傳 None。"""
+    if analysis.agreement is None:
+        return None
+    return {'subject': analysis.trial.subject, **analysis.agreement, **analysis.values}
+
+
+def write_agreement_table(rows, activity='A01'):
+    """寫出 _summary/agreement_{activity}.csv（GUI「分析 IMU 影片」與 run_demo.py 共用），回傳路徑。"""
+    import pandas as pd
+    os.makedirs(vidimu.SUMMARY_DIR, exist_ok=True)
+    path = os.path.join(vidimu.SUMMARY_DIR, f'agreement_{activity}.csv')
+    pd.DataFrame(rows).to_csv(path, index=False, float_format='%.3f')
+    return path
+
+
 def write_trial_csvs(result, curves, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     prefix = os.path.join(out_dir, result.name)

@@ -16,12 +16,13 @@ from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLa
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from gait_analysis.pipeline import (DERIVED_VIDEOS, SAVED, analyze_video, derived_suffix,   # noqa: E402
-                                    has_current_cache)
+from gait_analysis import vidimu                          # noqa: E402
+from gait_analysis.pipeline import (DERIVED_VIDEOS, SAVED, agreement_row, analyze_video,   # noqa: E402
+                                    derived_suffix, has_current_cache, write_agreement_table)
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
 from gait_analysis.style import IMU_COLOR, VIDEO_COLOR, VIDIMU_FOOTER   # noqa: E402
 from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_videos   # noqa: E402
-from gait_views import AnglePlot, FrameView, SummaryPanel   # noqa: E402
+from gait_views import AnglePlot, FrameView, ImuSummaryDialog, SummaryPanel   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
 
@@ -49,7 +50,10 @@ class AnalysisThread(QThread):
 
 
 class BatchThread(QThread):
-    """依序分析多支影片；單支失敗不中斷，最後回報每支結果 [(檔名, 錯誤訊息或 None)]。"""
+    """依序分析多支影片；單支失敗不中斷，最後回報每支結果 [(檔名, 錯誤訊息或 None, IMU 一致性列或 None)]。
+
+    中途取消時只回報已完成的影片（筆數少於 video_paths）。
+    """
     progress = pyqtSignal(int, int)
     itemStarted = pyqtSignal(int, int, str)
     succeeded = pyqtSignal(object)
@@ -71,9 +75,9 @@ class BatchThread(QThread):
                                      should_stop=self.isInterruptionRequested)
                 if done is None:
                     break
-                results.append((os.path.basename(path), None))
+                results.append((os.path.basename(path), None, agreement_row(done)))
             except Exception as error:
-                results.append((os.path.basename(path), f'{type(error).__name__}: {error}'))
+                results.append((os.path.basename(path), f'{type(error).__name__}: {error}', None))
         self.succeeded.emit(results)
 
 
@@ -164,13 +168,15 @@ class GaitTabControl(QWidget):
         left.addLayout(controls)
 
         self.loadBtn = QPushButton('載入影片')
+        self.imuBtn = QPushButton('分析 IMU 影片')
+        self.imuBtn.setToolTip('分析資料集中所有有 IMU 的步態影片（S40–S57 的 A01），列出與 IMU 的一致性')
         self.batchBtn = QPushButton('批量分析步態影片')
         self.autoTargetBtn = QPushButton('改回自動選擇目標')
         self.exportBtn = QPushButton('匯出展示影片')
         self.openFolderBtn = QPushButton('開啟輸出資料夾')
         self.cancelBtn = QPushButton('取消')
-        for button in (self.loadBtn, self.batchBtn, self.autoTargetBtn, self.exportBtn, self.openFolderBtn,
-                       self.cancelBtn):
+        for button in (self.loadBtn, self.imuBtn, self.batchBtn, self.autoTargetBtn, self.exportBtn,
+                       self.openFolderBtn, self.cancelBtn):
             button.setMinimumHeight(40)
         self.fileLabel = QLabel('檔名：')
         self.targetLabel = QLabel('')
@@ -186,7 +192,7 @@ class GaitTabControl(QWidget):
         panel = QGroupBox('步態分析')
         panel.setFixedWidth(300)
         side = QVBoxLayout(panel)
-        for widget in (self.fileLabel, self.loadBtn, self.batchBtn, self.targetLabel, self.autoTargetBtn,
+        for widget in (self.fileLabel, self.loadBtn, self.imuBtn, self.batchBtn, self.targetLabel, self.autoTargetBtn,
                        self.exportBtn, self.openFolderBtn, self.cancelBtn, self.progressBar, self.statusLabel,
                        self.infoLabel):
             side.addWidget(widget)
@@ -205,6 +211,7 @@ class GaitTabControl(QWidget):
 
     def bindUi(self):
         self.loadBtn.clicked.connect(self.loadVideo)
+        self.imuBtn.clicked.connect(self.analyzeImuVideos)
         self.batchBtn.clicked.connect(self.batchAnalyze)
         self.autoTargetBtn.clicked.connect(lambda: self.selectTarget(None))
         self.view.imageClicked.connect(self.onImageClicked)
@@ -226,6 +233,7 @@ class GaitTabControl(QWidget):
         self.exportBtn.setEnabled(loaded and not busy)
         self.openFolderBtn.setEnabled(loaded)
         self.loadBtn.setEnabled(not busy)
+        self.imuBtn.setEnabled(not busy)
         self.batchBtn.setEnabled(not busy)
         manual = loaded and self.analysis is not None and self.analysis.person_id is not None
         self.autoTargetBtn.setVisible(manual)
@@ -291,8 +299,10 @@ class GaitTabControl(QWidget):
     def loadVideo(self):
         start = OUTPUT_ROOT if os.path.isdir(OUTPUT_ROOT) else ''        # 預設開在 Db/Record
         path, _ = QFileDialog.getOpenFileName(self, '選擇側拍行走影片', start, 'Video Files (*.mp4 *.avi *.mov);;All Files (*)')
-        if not path:
-            return
+        if path:
+            self.openVideo(path)
+
+    def openVideo(self, path):
         suffix = derived_suffix(path)
         if suffix:
             # 畫面已疊上圖表或骨架，再分析一次得到的數字沒有意義
@@ -331,6 +341,53 @@ class GaitTabControl(QWidget):
                          f'改以 {text} 為目標重新計算，並更新骨架影片…',
                          lambda analysis: self.onAnalyzed(analysis, frame))
 
+    @staticmethod
+    def timeEstimate(videos):
+        cached = sum(map(has_current_cache, videos))
+        new = len(videos) - cached
+        if not new:
+            return '全部已有快取，只需數秒。'
+        return (f'其中 {cached} 支已有快取（數秒），其餘 {new} 支需萃取關節點，每支約 30 秒'
+                f'（共約 {max(1, round(new * 0.5))} 分鐘）。')
+
+    def analyzeImuVideos(self):
+        """分析資料集中所有有 IMU 的步態影片（A01），結束後列出與 IMU 的一致性並寫出彙總表。"""
+        if not os.path.isdir(vidimu.IMU_DIR):
+            QMessageBox.warning(self, '找不到 IMU 資料', f'找不到 {vidimu.IMU_DIR}\n請先依 README 放置 VIDIMU 資料集。')
+            return
+        trials = vidimu.find_trials('A01')
+        if not trials:
+            QMessageBox.warning(self, '找不到 IMU 影片', '資料集中沒有同時具備影片與 IMU 的步態試驗。')
+            return
+        videos = [trial.video_path for trial in trials]
+        text = (f'將分析 {len(trials)} 支有 IMU 的步態影片（{trials[0].subject}–{trials[-1].subject} 的 A01），'
+                f'{self.timeEstimate(videos)}\n\n完成後會列出每支與 IMU 的一致性，'
+                f'並寫出彙總表 _summary/agreement_A01.csv。\n\n要開始嗎？')
+        if QMessageBox.question(self, '分析 IMU 影片', text) != QMessageBox.Yes:
+            return
+        self.stopPlay()
+        worker = BatchThread(self.model, videos)
+        worker.itemStarted.connect(
+            lambda i, n, name: self.statusLabel.setText(f'分析 IMU 影片 {i}/{n}：{name}'))
+        self.startWorker(worker, f'分析 {len(videos)} 支 IMU 影片…', lambda results: self.onImuDone(results, videos))
+
+    def onImuDone(self, results, videos):
+        rows = [row for _, _, row in results if row]
+        notes = [f'✗ {name}：{error}' for name, error, _ in results if error]
+        notes += [f'⚠ {name}：沒有有效步態週期，無法與 IMU 比對' for name, error, row in results
+                  if not error and row is None]
+        if len(results) < len(videos):
+            # 中途取消：不覆寫完整的彙總表
+            notes.append(f'已取消（完成 {len(results)}/{len(videos)} 支），彙總表未更新。')
+        elif rows:
+            notes.append(f'彙總表：{write_agreement_table(rows)}')
+        self.statusLabel.setText(f'IMU 影片分析完成 {len(rows)}/{len(videos)} 支')
+        paths = {os.path.splitext(os.path.basename(path))[0]: path for path in videos}
+        dialog = ImuSummaryDialog(rows, paths, notes, self)
+        if dialog.exec_() and dialog.selected_path:
+            # 背景工作要等 finished 才清掉，延後到事件迴圈下一輪再載入
+            QTimer.singleShot(0, lambda: self.openVideo(dialog.selected_path))
+
     def batchAnalyze(self):
         """批量分析步態影片：每位受試者（S01…S57）的 A01（T01／T02／T03，有幾趟跑幾趟）。"""
         root = VIDEO_DIR
@@ -345,10 +402,8 @@ class GaitTabControl(QWidget):
                                 f'{root} 底下找不到 Sxx/Sxx_A01_Tnn.mp4 這類步態影片。')
             return
         subjects = len({os.path.basename(os.path.dirname(path)) for path in videos})
-        cached = sum(map(has_current_cache, videos))
         text = (f'將分析 {root}\n底下 {subjects} 位受試者的 {len(videos)} 支步態影片（A01），'
-                f'其中 {cached} 支已有快取（數秒），其餘 {len(videos) - cached} 支每支約 30 秒'
-                f'（共約 {max(1, round((len(videos) - cached) * 0.5))} 分鐘）。')
+                f'{self.timeEstimate(videos)}')
         if missing:
             text += f'\n\n沒有步態影片、將略過：' + '、'.join(missing)
         if QMessageBox.question(self, '批量分析步態影片', text + '\n\n要開始嗎？') != QMessageBox.Yes:
@@ -360,7 +415,7 @@ class GaitTabControl(QWidget):
         self.startWorker(worker, f'批量分析 {len(videos)} 支影片…', self.onBatchDone)
 
     def onBatchDone(self, results):
-        failed = [(name, error) for name, error in results if error]
+        failed = [(name, error) for name, error, _ in results if error]
         lines = [f'完成 {len(results) - len(failed)}/{len(results)} 支，輸出在 {OUTPUT_ROOT}']
         lines += [f'✗ {name}：{error}' for name, error in failed[:10]]
         self.statusLabel.setText(lines[0])
