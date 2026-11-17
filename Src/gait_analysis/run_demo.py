@@ -45,6 +45,9 @@ def main():
         except FileNotFoundError as error:
             print(f'{trial.name}: {error}，略過')
             continue
+        if analysis.agreement is None:
+            print(f'{trial.name}: 沒有有效步態週期，無法與 IMU 比對，略過', flush=True)
+            continue
         agreement, values = analysis.agreement, analysis.values
         rows.append({'subject': trial.subject, **agreement, **values})
         analyses[trial.name] = analysis
@@ -54,6 +57,9 @@ def main():
               f'IMU 位移 {agreement["lag_start_frames"]:+.0f} 格、漂移 {agreement["lag_drift_frames_per_min"]:+.1f} 格/分',
               flush=True)
 
+    if not rows:
+        print('沒有可比對的試驗')
+        return
     table = pd.DataFrame(rows)
     os.makedirs(vidimu.SUMMARY_DIR, exist_ok=True)
     table_path = os.path.join(vidimu.SUMMARY_DIR, f'agreement_{args.activity}.csv')

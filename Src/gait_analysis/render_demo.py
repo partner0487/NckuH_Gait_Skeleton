@@ -263,73 +263,81 @@ class DemoRenderer:
         return _put_labels(canvas, labels)
 
 
-def render(renderer, video_path, out_path, progress=None, should_stop=None):
-    """把整支影片合成為展示影片。progress(done, total) 回報進度；should_stop() 為 True 時中止並回傳 False。"""
-    cap = cv2.VideoCapture(video_path)
-    writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), renderer.result.fps, (W, H))
-    total = renderer.n_frames
-    frame_idx = 0
-    try:
-        while frame_idx < total:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            writer.write(renderer.render_frame(frame_idx, frame))
-            frame_idx += 1
-            if progress and frame_idx % 30 == 0:
-                progress(frame_idx, total)
-            if should_stop and should_stop():
-                return False
-    finally:
-        cap.release()
-        writer.release()
-    return True
+def _read_frames(cap, total):
+    """逐格讀出 (格號, 影像)，最多 total 格。"""
+    for frame_idx in range(total):
+        ok, frame = cap.read()
+        if not ok:
+            return
+        yield frame_idx, frame
 
 
-def render_skeleton_video(analysis, out_path, progress=None, should_stop=None):
-    """_Sk26.mp4：原片解析度與 fps，目標人物畫完整骨架（近側腿橘色），其他人只畫框與 ID。
+def _write_video(out_path, fps, size, frames, total, progress=None, should_stop=None):
+    """把 frames（逐格影像）寫成 out_path。中止時回傳 False。
 
-    先寫到暫存檔，完成才改名，中途取消不會留下不完整的影片。中止時回傳 False。
+    先寫到暫存檔，完成才取代 out_path：中途取消或出錯不會留下不完整的影片，原本的舊檔也保持不變。
+    舊檔正被播放器開著時，取代會丟出 PermissionError，交給呼叫端提示。
     """
-    result = analysis.result
-    near_by_frame = near_side_by_frame(result.passes)
-    cap = cv2.VideoCapture(analysis.video_path)
-    width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     temp = out_path + '.part.mp4'
-    writer = cv2.VideoWriter(temp, cv2.VideoWriter_fourcc(*'mp4v'), result.fps, (width, height))
-    total, frame_idx, finished = len(result.xy), 0, False
+    writer = cv2.VideoWriter(temp, cv2.VideoWriter_fourcc(*'mp4v'), fps, size)
+    if not writer.isOpened():           # OpenCV 開檔失敗不會丟例外，之後的 write 只會默默略過
+        writer.release()
+        raise OSError(f'無法建立影片檔 {temp}（資料夾無法寫入或磁碟已滿）')
+    finished = False
     try:
-        while frame_idx < total:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            for person_id, box, is_target in analysis.persons_at(frame_idx):
-                color, thickness = (NEAR_BGR, 2) if is_target else (FAR_BGR, 1)
-                x0, y0, x1, y1 = (int(v) for v in box)
-                cv2.rectangle(frame, (x0, y0), (x1, y1), color, thickness, cv2.LINE_AA)
-                text = f'ID {person_id}'
-                (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                ty = max(th + 6, y0)                    # 深色底，白牆上也看得清楚
-                cv2.rectangle(frame, (x0, ty - th - 6), (x0 + tw + 6, ty), (40, 40, 40), -1)
-                cv2.putText(frame, text, (x0 + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
-            draw_skeleton(frame, result.xy[frame_idx], near_by_frame.get(frame_idx))
-            writer.write(frame)
-            frame_idx += 1
-            if progress and frame_idx % 30 == 0:
-                progress(frame_idx, total)
+        for done, image in enumerate(frames, 1):
+            writer.write(image)
+            if progress and done % 30 == 0:
+                progress(done, total)
             if should_stop and should_stop():
                 return False
         finished = True
     finally:
-        cap.release()
         writer.release()
         try:
             if finished:
-                os.replace(temp, out_path)      # 舊檔被播放器開著時會 PermissionError，交給呼叫端提示
+                os.replace(temp, out_path)
         finally:
             if os.path.exists(temp):
                 os.remove(temp)
     return True
+
+
+def render(renderer, video_path, out_path, progress=None, should_stop=None):
+    """把整支影片合成為展示影片。progress(done, total) 回報進度；should_stop() 為 True 時中止並回傳 False。"""
+    cap = cv2.VideoCapture(video_path)
+    try:
+        frames = (renderer.render_frame(i, frame) for i, frame in _read_frames(cap, renderer.n_frames))
+        return _write_video(out_path, renderer.result.fps, (W, H), frames, renderer.n_frames, progress, should_stop)
+    finally:
+        cap.release()
+
+
+def render_skeleton_video(analysis, out_path, progress=None, should_stop=None):
+    """_Sk26.mp4：原片解析度與 fps，目標人物畫完整骨架（近側腿橘色），其他人只畫框與 ID。中止時回傳 False。"""
+    result = analysis.result
+    near_by_frame = near_side_by_frame(result.passes)
+
+    def draw(frame_idx, frame):
+        for person_id, box, is_target in analysis.persons_at(frame_idx):
+            color, thickness = (NEAR_BGR, 2) if is_target else (FAR_BGR, 1)
+            x0, y0, x1, y1 = (int(v) for v in box)
+            cv2.rectangle(frame, (x0, y0), (x1, y1), color, thickness, cv2.LINE_AA)
+            text = f'ID {person_id}'
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            ty = max(th + 6, y0)                    # 深色底，白牆上也看得清楚
+            cv2.rectangle(frame, (x0, ty - th - 6), (x0 + tw + 6, ty), (40, 40, 40), -1)
+            cv2.putText(frame, text, (x0 + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+        return draw_skeleton(frame, result.xy[frame_idx], near_by_frame.get(frame_idx))
+
+    cap = cv2.VideoCapture(analysis.video_path)
+    try:
+        size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        total = len(result.xy)
+        frames = (draw(i, frame) for i, frame in _read_frames(cap, total))
+        return _write_video(out_path, result.fps, size, frames, total, progress, should_stop)
+    finally:
+        cap.release()
 
 
 def _draw_panel(canvas, labels, values):

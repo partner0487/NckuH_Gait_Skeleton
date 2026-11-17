@@ -99,6 +99,9 @@ class ExportThread(QThread):
             if render(analysis.renderer(), analysis.video_path, self.out_path,
                       progress=self.progress.emit, should_stop=self.isInterruptionRequested):
                 self.succeeded.emit(self.out_path)
+        except PermissionError as error:
+            locked = os.path.basename(error.filename2 or error.filename or self.out_path)
+            self.failed.emit(f'{locked} 正被其他程式開啟（例如播放器），請關閉後再匯出。')
         except Exception as error:
             self.failed.emit(f'{type(error).__name__}: {error}')
 

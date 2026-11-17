@@ -109,7 +109,8 @@ class TargetSelectionTests(OutputRootMixin, unittest.TestCase):
 
     def test_skeleton_json_format(self):
         pipeline.analyze_video(self.video)
-        records = json.load(open(os.path.join(self.out, 'walk', 'walk.json'), encoding='utf-8'))
+        with open(os.path.join(self.out, 'walk', 'walk.json'), encoding='utf-8') as f:
+            records = json.load(f)
         self.assertEqual(len(records), T + (T - 10))
         self.assertEqual(set(records[0]), {'person_id', 'bbox', 'keypoints', 'frame_number'})
         self.assertEqual(len(records[0]['keypoints'][0]), 4)
@@ -158,6 +159,62 @@ class TargetSelectionTests(OutputRootMixin, unittest.TestCase):
         self.assertAlmostEqual(cap.get(cv2.CAP_PROP_FPS), 25.0)
         cap.release()
         self.assertFalse(os.path.exists(out + '.part.mp4'))
+
+
+class RunDemoTests(unittest.TestCase):
+    def test_trial_without_valid_strides_is_skipped(self):
+        from gait_analysis import run_demo
+        trial = vidimu.Trial('S99', 'A01', 'T01')
+        empty = SimpleNamespace(agreement=None, values={})
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(vidimu, 'find_trials', return_value=[trial]), \
+                patch.object(vidimu, 'SUMMARY_DIR', tmp), \
+                patch.object(run_demo, 'analyze_video', return_value=empty), \
+                patch.object(sys, 'argv', ['run_demo.py', '--no-video']), \
+                patch('builtins.print') as printed:
+            run_demo.main()                     # 不能因為 agreement 是 None 而中斷
+            self.assertEqual(os.listdir(tmp), [])
+        lines = ' '.join(str(c.args[0]) for c in printed.call_args_list)
+        self.assertIn('S99_A01_T01: 沒有有效步態週期', lines)
+
+
+class DemoExportTests(OutputRootMixin, unittest.TestCase):
+    """匯出展示影片：先寫暫存檔，取消或失敗都不留下半個檔案、不動到舊檔。"""
+
+    def setUp(self):
+        super().setUp()
+        from gait_analysis.render_demo import render
+        self.render = render
+        self.analysis = pipeline.analyze_video(self.video, write_outputs=False)
+        self.demo = os.path.join(self.tmp.name, 'walk_demo.mp4')
+        with open(self.demo, 'wb') as f:
+            f.write(b'old')
+
+    def old_kept(self):
+        self.assertFalse(os.path.exists(self.demo + '.part.mp4'))
+        with open(self.demo, 'rb') as f:
+            return f.read() == b'old'
+
+    def test_finished_export_replaces_old_file(self):
+        self.assertTrue(self.render(self.analysis.renderer(), self.video, self.demo))
+        self.assertFalse(self.old_kept())
+        cap = cv2.VideoCapture(self.demo)
+        self.assertEqual(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), T)
+        cap.release()
+
+    def test_cancel_keeps_old_file(self):
+        self.assertFalse(self.render(self.analysis.renderer(), self.video, self.demo, should_stop=lambda: True))
+        self.assertTrue(self.old_kept())
+
+    def test_unwritable_folder_raises(self):
+        with self.assertRaises(OSError):
+            self.render(self.analysis.renderer(), self.video, os.path.join(self.tmp.name, 'missing', 'x.mp4'))
+
+    def test_old_file_open_elsewhere_raises_and_is_kept(self):
+        with open(self.demo, 'rb'):              # Windows 上開著的檔案不能被取代，模擬播放器占用
+            with self.assertRaises(PermissionError):
+                self.render(self.analysis.renderer(), self.video, self.demo)
+        self.assertTrue(self.old_kept())
 
 
 class BatchListTests(unittest.TestCase):

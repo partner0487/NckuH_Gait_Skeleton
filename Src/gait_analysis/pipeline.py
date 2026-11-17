@@ -263,6 +263,8 @@ def analyze_video(video_path, model=None, progress=None, should_stop=None, write
             # 輸出檔正被其他程式開著（Excel、播放器）；分析結果照常顯示，只提示沒寫成
             locked = os.path.basename(error.filename2 or error.filename or '')
             analysis.warnings.append(f'{locked} 正被其他程式開啟，未能更新；關閉後重新載入即可')
+        except OSError as error:
+            analysis.warnings.append(f'輸出檔未能寫入：{error}')
     return analysis
 
 
