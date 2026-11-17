@@ -2,6 +2,7 @@
 import csv
 import glob
 import os
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -60,6 +61,27 @@ def find_trials(activity='A01', subjects=None):
             if os.path.isfile(trial.video_path):
                 trials.append(trial)
     return trials
+
+
+def gait_videos(root=VIDEO_DIR, activity='A01'):
+    """root 底下每位受試者（S01、S02…）的步態影片（A01 的每個試驗），依受試者、試驗排序。
+
+    VIDIMU 每人的步態多半只有一趟，編號不固定（T01／T02／T03），所以取全部試驗；
+    略過 _Npose 等衍生檔。回傳 (影片路徑, 沒有步態影片的受試者)。
+    """
+    subjects = sorted((name for name in os.listdir(root)
+                       if re.fullmatch(r'S\d+', name) and os.path.isdir(os.path.join(root, name))),
+                      key=lambda name: int(name[1:]))
+    found, missing = [], []
+    for subject in subjects:
+        pattern = re.compile(rf'{subject}_{activity}_T(\d+)\.mp4', re.IGNORECASE)
+        trials = sorted((int(m.group(1)), name) for name in os.listdir(os.path.join(root, subject))
+                        for m in [pattern.fullmatch(name)] if m)
+        if trials:
+            found += [os.path.join(root, subject, name) for _, name in trials]
+        else:
+            missing.append(subject)
+    return found, missing
 
 
 def sync_offset(trial: Trial):

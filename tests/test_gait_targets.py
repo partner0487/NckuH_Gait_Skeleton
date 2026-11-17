@@ -162,6 +162,20 @@ class BatchListTests(unittest.TestCase):
             names = [os.path.basename(p) for p in pipeline.list_videos(folder)]
         self.assertEqual(names, ['S01_A01_T1.AVI', 'S01_A01_T2.mp4', 'S01_A01_T10.mp4'])
 
+    def test_gait_videos_takes_every_a01_trial_of_each_subject(self):
+        from gait_analysis.vidimu import gait_videos
+        with tempfile.TemporaryDirectory() as root:
+            files = {'S10': ('S10_A01_T10', 'S10_A01_T02', 'S10_A01_T02_Npose', 'S10_A02_T01'),
+                     'S2': ('S2_A01_T03',), 'S7': ('S7_A02_T01',), 'Sx': ('Sx_A01_T01',)}
+            for subject, names in files.items():
+                os.mkdir(os.path.join(root, subject))
+                for name in names:
+                    open(os.path.join(root, subject, name + '.mp4'), 'wb').close()
+            open(os.path.join(root, 'S3'), 'wb').close()                        # 不是資料夾
+            found, missing = gait_videos(root)
+        self.assertEqual([os.path.basename(p) for p in found], ['S2_A01_T03.mp4', 'S10_A01_T02.mp4', 'S10_A01_T10.mp4'])
+        self.assertEqual(missing, ['S7'])
+
 
 class ClickTests(OutputRootMixin, unittest.TestCase):
     def test_frame_view_click_maps_to_image_coordinates(self):

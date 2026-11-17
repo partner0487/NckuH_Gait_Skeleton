@@ -100,6 +100,15 @@ def has_persons(data):
     return 'person_id' in data
 
 
+def has_current_cache(video_path):
+    """快取存在、屬於這支影片且是新格式（載入時不必重新萃取）。只讀檔案目錄與兩個小欄位。"""
+    path = cache_path(video_path)
+    if not os.path.isfile(path):
+        return False
+    with np.load(path) as npz:
+        return 'person_id' in npz.files and _same_video(str(npz['video_path']), video_path)
+
+
 def load_or_extract(video_path, model=None, progress=None, should_stop=None, frame_rate=30.0):
     """回傳 (npz 資料, 是否剛萃取)；中止時回傳 (None, False)。
 

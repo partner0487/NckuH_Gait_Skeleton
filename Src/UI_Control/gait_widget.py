@@ -1,6 +1,6 @@
 """步態分析分頁：載入側拍行走影片 → 背景萃取關節點與計算指標 → 以 Qt 元件顯示骨架、角度曲線與數字面板。
 
-畫面中有多人時可點選目標人物（記住選擇並重算）；也可批量分析整個資料夾，產生每支影片的快取與輸出檔。
+畫面中有多人時可點選目標人物（記住選擇並重算）；也可批量分析每位受試者的步態影片（A01），產生快取與輸出檔。
 
 螢幕顯示直接用 Qt 繪製（gait_views.py），任何視窗大小都清晰；「匯出展示影片」才用 render_demo 合成固定畫面。
 """
@@ -17,10 +17,10 @@ from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLa
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gait_analysis.gait import side_index                 # noqa: E402
-from gait_analysis.pipeline import SAVED, analyze_video, is_derived_video, list_videos   # noqa: E402
+from gait_analysis.pipeline import SAVED, analyze_video, has_current_cache, is_derived_video   # noqa: E402
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
 from gait_analysis.style import VIDIMU_FOOTER             # noqa: E402
-from gait_analysis.vidimu import OUTPUT_ROOT              # noqa: E402
+from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_videos   # noqa: E402
 from gait_views import IMU_COLOR, VIDEO_COLOR, AnglePlot, FrameView, SummaryPanel   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
@@ -161,7 +161,7 @@ class GaitTabControl(QWidget):
         left.addLayout(controls)
 
         self.loadBtn = QPushButton('載入影片')
-        self.batchBtn = QPushButton('批量分析資料夾')
+        self.batchBtn = QPushButton('批量分析步態影片')
         self.autoTargetBtn = QPushButton('改回自動選擇目標')
         self.exportBtn = QPushButton('匯出展示影片')
         self.openFolderBtn = QPushButton('開啟輸出資料夾')
@@ -328,15 +328,26 @@ class GaitTabControl(QWidget):
                          lambda analysis: self.onAnalyzed(analysis, frame))
 
     def batchAnalyze(self):
-        start = OUTPUT_ROOT if os.path.isdir(OUTPUT_ROOT) else ''
-        if self.analysis is not None:
-            start = os.path.dirname(self.analysis.video_path)
-        folder = QFileDialog.getExistingDirectory(self, '選擇要批量分析的影片資料夾', start)
-        if not folder:
-            return
-        videos = list_videos(folder)
+        """批量分析步態影片：每位受試者（S01…S57）的 A01（T01／T02／T03，有幾趟跑幾趟）。"""
+        root = VIDEO_DIR
+        if not os.path.isdir(root):
+            root = QFileDialog.getExistingDirectory(
+                self, '選擇步態影片根目錄（底下為 S01、S02… 資料夾）', PROJECT_ROOT)
+            if not root:
+                return
+        videos, missing = gait_videos(root)
         if not videos:
-            QMessageBox.warning(self, '無法批量分析', '資料夾中沒有可分析的影片（.mp4／.avi／.mov，不含 _Sk26、_demo）。')
+            QMessageBox.warning(self, '無法批量分析',
+                                f'{root} 底下找不到 Sxx/Sxx_A01_Tnn.mp4 這類步態影片。')
+            return
+        subjects = len({os.path.basename(os.path.dirname(path)) for path in videos})
+        cached = sum(map(has_current_cache, videos))
+        text = (f'將分析 {root}\n底下 {subjects} 位受試者的 {len(videos)} 支步態影片（A01），'
+                f'其中 {cached} 支已有快取（數秒），其餘 {len(videos) - cached} 支每支約 30 秒'
+                f'（共約 {max(1, round((len(videos) - cached) * 0.5))} 分鐘）。')
+        if missing:
+            text += f'\n\n沒有步態影片、將略過：' + '、'.join(missing)
+        if QMessageBox.question(self, '批量分析步態影片', text + '\n\n要開始嗎？') != QMessageBox.Yes:
             return
         self.stopPlay()
         worker = BatchThread(self.model, videos)
