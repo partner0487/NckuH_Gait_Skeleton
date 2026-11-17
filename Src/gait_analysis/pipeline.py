@@ -221,7 +221,7 @@ def agreement_row(analysis):
 
 
 def write_agreement_table(rows, activity='A01'):
-    """寫出 _summary/agreement_{activity}.csv（GUI「分析 IMU 影片」與 run_demo.py 共用），回傳路徑。"""
+    """寫出 _summary/agreement_{activity}.csv（GUI「分析含 IMU 步態影片」與 run_demo.py 共用），回傳路徑。"""
     import pandas as pd
     os.makedirs(vidimu.SUMMARY_DIR, exist_ok=True)
     path = os.path.join(vidimu.SUMMARY_DIR, f'agreement_{activity}.csv')

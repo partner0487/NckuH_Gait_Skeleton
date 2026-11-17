@@ -168,7 +168,7 @@ class GaitTabControl(QWidget):
         left.addLayout(controls)
 
         self.loadBtn = QPushButton('載入影片')
-        self.imuBtn = QPushButton('分析 IMU 影片')
+        self.imuBtn = QPushButton('分析含 IMU 步態影片')
         self.imuBtn.setToolTip('分析資料集中所有有 IMU 的步態影片（S40–S57 的 A01），列出與 IMU 的一致性')
         self.batchBtn = QPushButton('批量分析步態影片')
         self.autoTargetBtn = QPushButton('改回自動選擇目標')
@@ -363,12 +363,12 @@ class GaitTabControl(QWidget):
         text = (f'將分析 {len(trials)} 支有 IMU 的步態影片（{trials[0].subject}–{trials[-1].subject} 的 A01），'
                 f'{self.timeEstimate(videos)}\n\n完成後會列出每支與 IMU 的一致性，'
                 f'並寫出彙總表 _summary/agreement_A01.csv。\n\n要開始嗎？')
-        if QMessageBox.question(self, '分析 IMU 影片', text) != QMessageBox.Yes:
+        if QMessageBox.question(self, '分析含 IMU 步態影片', text) != QMessageBox.Yes:
             return
         self.stopPlay()
         worker = BatchThread(self.model, videos)
         worker.itemStarted.connect(
-            lambda i, n, name: self.statusLabel.setText(f'分析 IMU 影片 {i}/{n}：{name}'))
+            lambda i, n, name: self.statusLabel.setText(f'分析含 IMU 步態影片 {i}/{n}：{name}'))
         self.startWorker(worker, f'分析 {len(videos)} 支 IMU 影片…', lambda results: self.onImuDone(results, videos))
 
     def onImuDone(self, results, videos):

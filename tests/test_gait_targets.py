@@ -279,7 +279,7 @@ def imu_row(trial, knee_r, rmse=3.0):
 
 
 class ImuAnalysisTests(unittest.TestCase):
-    """「分析 IMU 影片」：結果表、彙總表、取消時不覆寫。"""
+    """「分析含 IMU 步態影片」：結果表、彙總表、取消時不覆寫。"""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -247,7 +247,7 @@ class _NumberItem(QTableWidgetItem):
 
 
 class ImuSummaryDialog(QDialog):
-    """「分析 IMU 影片」結果：每支試驗與 IMU 的一致性；雙擊一列可載入該影片（selected_path）。"""
+    """「分析含 IMU 步態影片」結果：每支試驗與 IMU 的一致性；雙擊一列可載入該影片（selected_path）。"""
     COLUMNS = (('trial', '試驗', None), ('near_strides', '近側週期', '{:.0f}'),
                ('knee_pearson_r', '膝 r', '{:.2f}'), ('knee_rmse_centered', '膝 RMSE\n（扣平均差）', '{:.1f}°'),
                ('hip_pearson_r', '髖 r', '{:.2f}'), ('hip_rmse_centered', '髖 RMSE\n（扣平均差）', '{:.1f}°'),
