@@ -207,11 +207,14 @@ NckuH_Gait_Skeleton/
 
 ## 啟動程式
 
+在專案根目錄執行：
+
 ```bash
 conda activate Gait
-cd Src\UI_Control
-python main.py
+python Src\UI_Control\main.py
 ```
+
+權重與設定檔路徑都依程式所在位置換算，從其他資料夾啟動也可以。
 
 ---
 

@@ -8,7 +8,6 @@
 """
 import os
 import sys
-from contextlib import contextmanager
 
 import cv2
 import numpy as np
@@ -17,25 +16,11 @@ UI_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'UI_Contr
 NUM_KPTS = 26
 
 
-@contextmanager
-def _ui_context():
-    # Model 以 argparse 讀 sys.argv、以相對路徑找權重，需在 UI_Control 下建立
-    old_cwd, old_argv = os.getcwd(), sys.argv
+def load_model():
     if UI_DIR not in sys.path:
         sys.path.insert(0, UI_DIR)
-    os.chdir(UI_DIR)
-    sys.argv = [old_argv[0]]
-    try:
-        yield
-    finally:
-        os.chdir(old_cwd)
-        sys.argv = old_argv
-
-
-def load_model():
-    with _ui_context():
-        from utils.model import Model
-        return Model()
+    from utils.model import Model
+    return Model()
 
 
 def _iou(a, b):

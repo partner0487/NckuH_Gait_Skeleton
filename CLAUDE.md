@@ -16,8 +16,7 @@
 **啟動指令：**
 ```bash
 conda activate Gait
-cd Src/UI_Control
-python main.py
+python Src\UI_Control\main.py      # 專案根目錄；路徑皆依檔案位置換算，不限啟動資料夾
 ```
 
 ## 關鍵套件版本（Gait 環境）

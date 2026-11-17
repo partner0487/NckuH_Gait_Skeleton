@@ -1,6 +1,8 @@
 import sys
 import os
-os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(os.environ["CONDA_PREFIX"], "Library", "plugins", "platforms")
+# 沒有先 conda activate（例如在 IDE 直接執行）時沒有 CONDA_PREFIX，改用目前 Python 所在的環境
+env_root = os.environ.get("CONDA_PREFIX") or sys.prefix
+os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(env_root, "Library", "plugins", "platforms")
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from gait_widget import GaitTabControl
 from ui.main_window import Ui_MainWindow
