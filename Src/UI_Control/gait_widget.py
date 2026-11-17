@@ -286,7 +286,7 @@ class GaitTabControl(QWidget):
     # ----------------------------------------------------------------- 分析
 
     def loadVideo(self):
-        start = OUTPUT_ROOT if os.path.isdir(OUTPUT_ROOT) else ''        # 預設開在 Db/Record，與 2D 分頁相同
+        start = OUTPUT_ROOT if os.path.isdir(OUTPUT_ROOT) else ''        # 預設開在 Db/Record
         path, _ = QFileDialog.getOpenFileName(self, '選擇側拍行走影片', start, 'Video Files (*.mp4 *.avi *.mov);;All Files (*)')
         if not path:
             return

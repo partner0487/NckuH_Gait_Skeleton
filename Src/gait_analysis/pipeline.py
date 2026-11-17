@@ -4,7 +4,7 @@
 
 每支影片在 Db/Record/{名稱}/ 寫出同一組基本檔案，有 IMU 時只是 _curves.csv 多 IMU 欄位：
     {名稱}.mp4                 原始影片（之後可直接從 Db/Record 載入）
-    {名稱}.json、{名稱}.csv     所有人的骨架（與 2D 影片分頁格式相同）
+    {名稱}.json、{名稱}.csv     所有人的骨架（逐人逐格／逐關節點）
     {名稱}_Sk26.mp4            疊上目標人物骨架的影片
     _keypoints/_events/_strides/_curves.csv   步態分析結果
 """
@@ -302,7 +302,7 @@ def write_base_outputs(analysis, data, extracted=False, progress=None, should_st
 
 
 def write_skeleton_files(data, prefix):
-    """與 2D 影片分頁相同格式：JSON 為逐人逐格紀錄，CSV 為逐關節點一列。"""
+    """JSON 為逐人逐格紀錄，CSV 為逐關節點一列（沿用原 2D 影片分頁的格式）。"""
     rows = data['person_id'] >= 0
     frames, ids = data['person_frame'][rows], data['person_id'][rows]
     boxes, kpts = data['person_bbox'][rows], data['person_kpts'][rows]

@@ -107,15 +107,13 @@ class TargetSelectionTests(OutputRootMixin, unittest.TestCase):
         # 不存在的 ID 改回自動
         self.assertIsNone(pipeline.analyze_video(self.video, person_id=99).person_id)
 
-    def test_json_matches_2d_tab_format(self):
+    def test_skeleton_json_format(self):
         pipeline.analyze_video(self.video)
         records = json.load(open(os.path.join(self.out, 'walk', 'walk.json'), encoding='utf-8'))
         self.assertEqual(len(records), T + (T - 10))
         self.assertEqual(set(records[0]), {'person_id', 'bbox', 'keypoints', 'frame_number'})
         self.assertEqual(len(records[0]['keypoints'][0]), 4)
-        from cv_utils.cv_control import JsonLoader                       # 2D 分頁讀得進來
-        data, _, _ = JsonLoader(os.path.join(self.out, 'walk'), 'walk').load()
-        self.assertEqual(sorted(data['person_id'].unique()), [1, 2])
+        self.assertEqual(sorted({r['person_id'] for r in records}), [1, 2])
 
     def test_record_copy_reads_same_cache(self):
         pipeline.analyze_video(self.video, person_id=2)

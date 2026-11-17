@@ -76,7 +76,7 @@ def extract_video(model, video_path, out_path, conf_thres=0.3, frame_rate=30.0, 
     """progress(done, total) 回報進度；should_stop() 為 True 時中止、不寫檔並回傳 None。"""
     from mmpose.apis import inference_topdown
     from tracker.mc_bot_sort import BoTSORT
-    # 自己建一個追蹤器，不動到 2D 分頁共用的 model.tracker
+    # 每支影片自己建一個追蹤器（依影片 fps），不沿用 model.tracker 的狀態
     tracker = BoTSORT(model.tracker_args, frame_rate=frame_rate)
     cap = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))

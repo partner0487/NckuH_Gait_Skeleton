@@ -4,7 +4,7 @@
     python Src/gait_analysis/run_demo.py                          # 分析全部，自動挑 3 位做展示
     python Src/gait_analysis/run_demo.py --demo-subjects S40 S41 S42
 
-輸出（Db/Record/，與「2D 影片」分頁共用，一支影片一個資料夾）：
+輸出（Db/Record/，與 GUI 共用，一支影片一個資料夾）：
     <試驗>/<試驗>_keypoints|_events|_strides|_curves.csv    每個試驗的四個 CSV
     <試驗>/<試驗>_demo.mp4、_panel.png、_knee_overlay.png   展示試驗的展示影片、數字面板、膝角疊圖
     _summary/agreement_A01.csv                             全部試驗的 IMU 一致性與面板數值
