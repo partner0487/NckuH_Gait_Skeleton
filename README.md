@@ -228,7 +228,7 @@ python Src\UI_Control\main.py
 4. **匯出展示影片**：輸出 1280×720 MP4，並在同一位置輸出數字面板（`_panel.png`），有 IMU 時另輸出膝角疊圖（`_knee_overlay.png`）。預設位置 `Db/Record/{影片名稱}/{影片名稱}_demo.mp4`
 5. **開啟輸出資料夾**：開啟 `Db/Record/{影片名稱}/`
 6. **點選目標人物**：畫面中有兩人以上時，每個人都會畫出框與追蹤 ID（目標為橘色實線，其他人白色虛線）。點某個人的框就改以他為目標重算指標並重畫 `_Sk26.mp4`，選擇會記住，下次載入同一支影片沿用。按「**改回自動選擇目標**」回到自動（每格取畫面中最大、且與上一格位置連續的人；VIDIMU 這類單人影片不需要點選）
-7. **分析含 IMU 步態影片**：一次分析資料集中所有同時有影片與 IMU 的步態試驗（S40–S57 的 A01，目前 16 支），每支一樣會建立快取並寫出全部輸出檔。完成後跳出結果表，列出每支的近側週期數、膝與髖跟 IMU 的 r 與扣平均差 RMSE、步頻，上方顯示膝 r 與 RMSE 的中位數；點欄位標題可排序，**雙擊一列可直接載入該影片**。同時寫出彙總表 `Db/Record/_summary/agreement_A01.csv`（與 `run_demo.py` 相同格式）；中途取消時不覆寫彙總表。沒有有效步態週期的影片會列在表下方
+7. **分析含 IMU 步態影片**：與下面的「批量分析步態影片」相同，但只分析在 `Db_NckuH_Gait/Database/VideoAndImus/` 有對應 IMU 檔（`ik_{影片名稱}.mot`）的步態影片。不寫死受試者：之後放入新的影片與 IMU 檔就會自動納入（目前 16 位、16 支）
 8. **批量分析步態影片**：自動讀取 `Db_NckuH_Gait/Db_VideoSmallSize/Db_VideoSOriginal/` 底下每位受試者（S01…S57）的步態影片 `Sxx_A01_Tnn.mp4`，略過 `_Npose` 檔。VIDIMU 每人的步態多半只有一趟且編號不固定（S01～S39 多為 T01，S41、S49 等為 T02，S50、S54 為 T03），所以有幾趟就跑幾趟，目前共 53 位、56 支。開始前會顯示支數、已有快取的支數與預估時間（新影片每支約 30 秒）。每支都會建立快取並寫出全部基本檔與步態 CSV；單支失敗不會中斷，結束時列出失敗的影片。可按「取消」在目前這支結束後停止。找不到資料集時會改為詢問影片根目錄（底下為 S01、S02… 資料夾）
 
 不同影片的處理方式：
@@ -295,7 +295,7 @@ Db/Record/
 | `{影片名稱}_demo.mp4` | 展示影片：左半骨架疊在行走畫面（臉部模糊），右半髖、膝曲線同步畫出，膝角疊 IMU |
 | `{影片名稱}_knee_overlay.png` | 膝角曲線疊圖（影片 vs IMU，各週期細線與平均粗線），只有 IMU 試驗才有 |
 | `{影片名稱}_panel.png` | 數字面板：步頻、膝活動範圍、最大髖伸展、軀幹前傾角 |
-| `_summary/agreement_A01.csv` | 「分析含 IMU 步態影片」或 `run_demo.py` 產生：全部試驗的 IMU 一致性（RMSE、扣平均差 RMSE、Pearson r）與面板數值 |
+| `_summary/agreement_A01.csv` | `run_demo.py` 產生：全部試驗的 IMU 一致性（RMSE、扣平均差 RMSE、Pearson r）與面板數值 |
 
 `.csv` 採用 UTF-8 BOM 編碼，可直接以 Excel 開啟；每列一個影格／人物／關節點，欄位為 `frame_number`（從 0 開始）、`person_id`、`bbox_x1`、`bbox_y1`、`bbox_x2`、`bbox_y2`、`keypoint_id`（0–25）、`keypoint_name`、`x`、`y`、`confidence`、`is_modified`（保留欄位，固定為 0）。座標以原始影片像素為單位。
 
@@ -421,8 +421,8 @@ NckuH_Gait_Skeleton/
 │   │   └── style.py           # 字型、面板文字、資料來源註記
 │   ├── UI_Control/            # 主程式
 │   │   ├── main.py            # 入口點
-│   │   ├── gait_widget.py     # 主畫面邏輯（載入、播放、點選目標、IMU 分析、批量分析、匯出）
-│   │   ├── gait_views.py      # 顯示元件（影片骨架、角度曲線、數字面板、IMU 結果表）
+│   │   ├── gait_widget.py     # 主畫面邏輯（載入、播放、點選目標、批量分析、匯出）
+│   │   ├── gait_views.py      # 顯示元件（影片骨架、角度曲線、數字面板）
 │   │   ├── ui/                # PyQt5 主視窗定義（.py + .ui）
 │   │   └── utils/model.py     # 模型載入（YOLO + ViTPose + BoTSORT）
 │   ├── mmengine_main/        # OpenMMLab mmengine 原始碼

@@ -6,8 +6,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPen
-from PyQt5.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QHeaderView, QLabel,
-                             QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
 from gait_analysis.style import panel_items
@@ -228,84 +227,3 @@ class SummaryPanel(QWidget):
 
     def texts(self):
         return [value.text() for _, value, _ in self.cards]
-
-
-class _NumberItem(QTableWidgetItem):
-    """顯示格式化文字，排序依實際數值（遞增排序時 NaN 排最後）。"""
-
-    def __init__(self, value, text):
-        super().__init__(text)
-        self.value = value
-        self.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-    def __lt__(self, other):
-        if self.value != self.value:        # NaN
-            return False
-        if other.value != other.value:
-            return True
-        return self.value < other.value
-
-
-class ImuSummaryDialog(QDialog):
-    """「分析含 IMU 步態影片」結果：每支試驗與 IMU 的一致性；雙擊一列可載入該影片（selected_path）。"""
-    COLUMNS = (('trial', '試驗', None), ('near_strides', '近側週期', '{:.0f}'),
-               ('knee_pearson_r', '膝 r', '{:.2f}'), ('knee_rmse_centered', '膝 RMSE\n（扣平均差）', '{:.1f}°'),
-               ('hip_pearson_r', '髖 r', '{:.2f}'), ('hip_rmse_centered', '髖 RMSE\n（扣平均差）', '{:.1f}°'),
-               ('cadence', '步頻\n（步/分）', '{:.0f}'))
-
-    def __init__(self, rows, video_paths, notes=(), parent=None):
-        super().__init__(parent)
-        self.setWindowTitle('IMU 影片分析結果')
-        self.resize(820, 560)
-        self.selected_path = None
-        self.video_paths = video_paths          # 試驗名稱 -> 影片路徑
-
-        knee_r = np.array([row['knee_pearson_r'] for row in rows], float)
-        knee_rmse = np.array([row['knee_rmse_centered'] for row in rows], float)
-        summary = QLabel(
-            f'{len(rows)} 支有 IMU 對照的步態影片｜膝 r 中位數 {np.nanmedian(knee_r):.2f}'
-            f'（{np.nanmin(knee_r):.2f}–{np.nanmax(knee_r):.2f}）｜'
-            f'膝 RMSE（扣平均差）中位數 {np.nanmedian(knee_rmse):.1f}°' if rows else '沒有可比對的影片')
-        summary.setStyleSheet('font-size: 11pt;')
-
-        table = QTableWidget(len(rows), len(self.COLUMNS))
-        table.setHorizontalHeaderLabels([title for _, title, _ in self.COLUMNS])
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        for r, row in enumerate(rows):
-            for c, (key, _, fmt) in enumerate(self.COLUMNS):
-                value = row.get(key)
-                if fmt is None:
-                    item = QTableWidgetItem(str(value))
-                else:
-                    value = float(value) if value is not None else float('nan')
-                    item = _NumberItem(value, fmt.format(value) if value == value else '—')
-                table.setItem(r, c, item)
-        table.setSortingEnabled(True)
-        table.sortItems(0, Qt.AscendingOrder)          # 預設依試驗名稱（S40 起）
-        table.cellDoubleClicked.connect(self._open)
-        self.table = table
-
-        hint = QLabel('點欄位標題可排序；雙擊一列可載入該影片。IMU 不是金標準，以上為與 IMU 的一致性（初步結果）。')
-        hint.setStyleSheet('color: #666;')
-        hint.setWordWrap(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.button(QDialogButtonBox.Close).setText('關閉')
-        buttons.rejected.connect(self.reject)
-        layout = QVBoxLayout(self)
-        layout.addWidget(summary)
-        layout.addWidget(table, 1)
-        for note in notes:
-            label = QLabel(note)
-            label.setWordWrap(True)
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            layout.addWidget(label)
-        layout.addWidget(hint)
-        layout.addWidget(buttons)
-
-    def _open(self, row, _column):
-        self.selected_path = self.video_paths.get(self.table.item(row, 0).text())
-        if self.selected_path:
-            self.accept()

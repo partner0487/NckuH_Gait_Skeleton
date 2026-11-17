@@ -17,12 +17,12 @@ from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLa
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gait_analysis import vidimu                          # noqa: E402
-from gait_analysis.pipeline import (DERIVED_VIDEOS, SAVED, agreement_row, analyze_video,   # noqa: E402
-                                    derived_suffix, has_current_cache, write_agreement_table)
+from gait_analysis.pipeline import (DERIVED_VIDEOS, SAVED, analyze_video, derived_suffix,   # noqa: E402
+                                    has_current_cache)
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
 from gait_analysis.style import IMU_COLOR, VIDEO_COLOR, VIDIMU_FOOTER   # noqa: E402
 from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_videos   # noqa: E402
-from gait_views import AnglePlot, FrameView, ImuSummaryDialog, SummaryPanel   # noqa: E402
+from gait_views import AnglePlot, FrameView, SummaryPanel   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
 
@@ -50,10 +50,7 @@ class AnalysisThread(QThread):
 
 
 class BatchThread(QThread):
-    """依序分析多支影片；單支失敗不中斷，最後回報每支結果 [(檔名, 錯誤訊息或 None, IMU 一致性列或 None)]。
-
-    中途取消時只回報已完成的影片（筆數少於 video_paths）。
-    """
+    """依序分析多支影片；單支失敗不中斷，最後回報每支結果 [(檔名, 錯誤訊息或 None)]。"""
     progress = pyqtSignal(int, int)
     itemStarted = pyqtSignal(int, int, str)
     succeeded = pyqtSignal(object)
@@ -75,9 +72,9 @@ class BatchThread(QThread):
                                      should_stop=self.isInterruptionRequested)
                 if done is None:
                     break
-                results.append((os.path.basename(path), None, agreement_row(done)))
+                results.append((os.path.basename(path), None))
             except Exception as error:
-                results.append((os.path.basename(path), f'{type(error).__name__}: {error}', None))
+                results.append((os.path.basename(path), f'{type(error).__name__}: {error}'))
         self.succeeded.emit(results)
 
 
@@ -169,7 +166,7 @@ class GaitTabControl(QWidget):
 
         self.loadBtn = QPushButton('載入影片')
         self.imuBtn = QPushButton('分析含 IMU 步態影片')
-        self.imuBtn.setToolTip('分析資料集中所有有 IMU 的步態影片（S40–S57 的 A01），列出與 IMU 的一致性')
+        self.imuBtn.setToolTip('與「批量分析步態影片」相同，但只分析資料集中有對應 IMU 檔的步態影片')
         self.batchBtn = QPushButton('批量分析步態影片')
         self.autoTargetBtn = QPushButton('改回自動選擇目標')
         self.exportBtn = QPushButton('匯出展示影片')
@@ -350,52 +347,31 @@ class GaitTabControl(QWidget):
         return (f'其中 {cached} 支已有快取（數秒），其餘 {new} 支需萃取關節點，每支約 30 秒'
                 f'（共約 {max(1, round(new * 0.5))} 分鐘）。')
 
-    def analyzeImuVideos(self):
-        """分析資料集中所有有 IMU 的步態影片（A01），結束後列出與 IMU 的一致性並寫出彙總表。"""
-        if not os.path.isdir(vidimu.IMU_DIR):
-            QMessageBox.warning(self, '找不到 IMU 資料', f'找不到 {vidimu.IMU_DIR}\n請先依 README 放置 VIDIMU 資料集。')
-            return
-        trials = vidimu.find_trials('A01')
-        if not trials:
-            QMessageBox.warning(self, '找不到 IMU 影片', '資料集中沒有同時具備影片與 IMU 的步態試驗。')
-            return
-        videos = [trial.video_path for trial in trials]
-        text = (f'將分析 {len(trials)} 支有 IMU 的步態影片（{trials[0].subject}–{trials[-1].subject} 的 A01），'
-                f'{self.timeEstimate(videos)}\n\n完成後會列出每支與 IMU 的一致性，'
-                f'並寫出彙總表 _summary/agreement_A01.csv。\n\n要開始嗎？')
-        if QMessageBox.question(self, '分析含 IMU 步態影片', text) != QMessageBox.Yes:
-            return
-        self.stopPlay()
-        worker = BatchThread(self.model, videos)
-        worker.itemStarted.connect(
-            lambda i, n, name: self.statusLabel.setText(f'分析含 IMU 步態影片 {i}/{n}：{name}'))
-        self.startWorker(worker, f'分析 {len(videos)} 支 IMU 影片…', lambda results: self.onImuDone(results, videos))
+    def gaitVideoRoot(self):
+        """步態影片根目錄（底下為 S01、S02… 資料夾）；資料集不在預設位置時請使用者選擇。"""
+        if os.path.isdir(VIDEO_DIR):
+            return VIDEO_DIR
+        return QFileDialog.getExistingDirectory(self, '選擇步態影片根目錄（底下為 S01、S02… 資料夾）', PROJECT_ROOT)
 
-    def onImuDone(self, results, videos):
-        rows = [row for _, _, row in results if row]
-        notes = [f'✗ {name}：{error}' for name, error, _ in results if error]
-        notes += [f'⚠ {name}：沒有有效步態週期，無法與 IMU 比對' for name, error, row in results
-                  if not error and row is None]
-        if len(results) < len(videos):
-            # 中途取消：不覆寫完整的彙總表
-            notes.append(f'已取消（完成 {len(results)}/{len(videos)} 支），彙總表未更新。')
-        elif rows:
-            notes.append(f'彙總表：{write_agreement_table(rows)}')
-        self.statusLabel.setText(f'IMU 影片分析完成 {len(rows)}/{len(videos)} 支')
-        paths = {os.path.splitext(os.path.basename(path))[0]: path for path in videos}
-        dialog = ImuSummaryDialog(rows, paths, notes, self)
-        if dialog.exec_() and dialog.selected_path:
-            # 背景工作要等 finished 才清掉，延後到事件迴圈下一輪再載入
-            QTimer.singleShot(0, lambda: self.openVideo(dialog.selected_path))
+    def analyzeImuVideos(self):
+        """與批量分析相同，但只分析有對應 IMU 檔的步態影片；新增影片與 IMU 檔後會自動納入。"""
+        root = self.gaitVideoRoot()
+        if not root:
+            return
+        videos = [path for path in gait_videos(root)[0] if vidimu.video_has_imu(path)]
+        if not videos:
+            QMessageBox.warning(self, '無法分析', f'{root} 底下的步態影片在 {vidimu.IMU_DIR} 中都沒有對應的 IMU 檔。')
+            return
+        subjects = len({os.path.basename(os.path.dirname(path)) for path in videos})
+        self.runBatch('分析含 IMU 步態影片', videos,
+                      f'將分析 {root}\n底下有 IMU 資料的 {subjects} 位受試者、{len(videos)} 支步態影片（A01），'
+                      f'{self.timeEstimate(videos)}')
 
     def batchAnalyze(self):
-        """批量分析步態影片：每位受試者（S01…S57）的 A01（T01／T02／T03，有幾趟跑幾趟）。"""
-        root = VIDEO_DIR
-        if not os.path.isdir(root):
-            root = QFileDialog.getExistingDirectory(
-                self, '選擇步態影片根目錄（底下為 S01、S02… 資料夾）', PROJECT_ROOT)
-            if not root:
-                return
+        """批量分析步態影片：每位受試者（Sxx 資料夾）的 A01（T01／T02／T03，有幾趟跑幾趟）。"""
+        root = self.gaitVideoRoot()
+        if not root:
+            return
         videos, missing = gait_videos(root)
         if not videos:
             QMessageBox.warning(self, '無法批量分析',
@@ -406,16 +382,19 @@ class GaitTabControl(QWidget):
                 f'{self.timeEstimate(videos)}')
         if missing:
             text += f'\n\n沒有步態影片、將略過：' + '、'.join(missing)
-        if QMessageBox.question(self, '批量分析步態影片', text + '\n\n要開始嗎？') != QMessageBox.Yes:
+        self.runBatch('批量分析步態影片', videos, text)
+
+    def runBatch(self, title, videos, text):
+        if QMessageBox.question(self, title, text + '\n\n要開始嗎？') != QMessageBox.Yes:
             return
         self.stopPlay()
         worker = BatchThread(self.model, videos)
         worker.itemStarted.connect(
-            lambda i, n, name: self.statusLabel.setText(f'批量分析 {i}/{n}：{name}\n（有快取的影片很快，新影片需萃取關節點）'))
-        self.startWorker(worker, f'批量分析 {len(videos)} 支影片…', self.onBatchDone)
+            lambda i, n, name: self.statusLabel.setText(f'{title} {i}/{n}：{name}\n（有快取的影片很快，新影片需萃取關節點）'))
+        self.startWorker(worker, f'{title}：{len(videos)} 支影片…', self.onBatchDone)
 
     def onBatchDone(self, results):
-        failed = [(name, error) for name, error, _ in results if error]
+        failed = [(name, error) for name, error in results if error]
         lines = [f'完成 {len(results) - len(failed)}/{len(results)} 支，輸出在 {OUTPUT_ROOT}']
         lines += [f'✗ {name}：{error}' for name, error in failed[:10]]
         self.statusLabel.setText(lines[0])
@@ -473,7 +452,7 @@ class GaitTabControl(QWidget):
             lines.append(f'與 IMU 一致性（膝角）：r = {a["knee_pearson_r"]:.2f}、'
                          f'扣除平均差後 RMSE = {a["knee_rmse_centered"]:.1f}°')
         elif analysis.trial is not None:
-            lines.append('此 VIDIMU 試驗沒有 IMU 資料（只有 S40–S57 有），不做 IMU 對照。')
+            lines.append('此 VIDIMU 試驗在資料集中沒有對應的 IMU 檔，不做 IMU 對照。')
         else:
             lines.append('非 VIDIMU 影片，沒有 IMU 對照。')
         lines.append(f'已輸出至：{analysis.out_dir}')

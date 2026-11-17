@@ -62,6 +62,12 @@ def find_trials(activity='A01', subjects=None):
     return trials
 
 
+def video_has_imu(video_path):
+    """檔名為 Sxx_Axx_Txx 且 IMU 資料夾有對應的 ik_*.mot（新增影片與 IMU 檔後自動納入，不寫死受試者）。"""
+    match = re.fullmatch(r'(S\d+)_(A\d+)_(T\d+)', os.path.splitext(os.path.basename(video_path))[0])
+    return bool(match) and Trial(*match.groups()).has_imu
+
+
 def gait_videos(root=VIDEO_DIR, activity='A01'):
     """root 底下每位受試者（S01、S02…）的步態影片（A01 的每個試驗），依受試者、試驗排序。
 
