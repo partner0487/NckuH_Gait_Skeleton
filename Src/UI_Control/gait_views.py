@@ -4,9 +4,9 @@
 """
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt5.QtCore import QPointF, QRect, QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPen
-from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
 from gait_analysis.style import panel_items
@@ -25,6 +25,7 @@ class FrameView(QWidget):
     畫面中有兩人以上時畫出每個人的框與 ID；點擊畫面發出 imageClicked(影像 x, 影像 y)。
     """
     imageClicked = pyqtSignal(float, float)
+    aspectChanged = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -34,14 +35,20 @@ class FrameView(QWidget):
         self.labels = []
         self.persons = []           # [(person_id, bbox, is_target)]
         self.placeholder = '請載入側拍行走影片'
-        self.setMinimumSize(320, 240)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumSize(160, 90)
+
+    def aspect(self):
+        """影片寬高比；尚未載入時以 16:9 預留位置。"""
+        return self.image.width() / self.image.height() if self.image is not None else 16 / 9
 
     def setFrame(self, frame_bgr, xy, near_side, labels=(), persons=()):
         """xy 為 (26, 2) 影像座標；labels 為 [(文字, 影像 x, 影像 y)]；persons 為 [(ID, 框, 是否目標)]。"""
         height, width = frame_bgr.shape[:2]
+        old = self.aspect()
         self.image = QImage(frame_bgr.data, width, height, 3 * width, QImage.Format_RGB888).rgbSwapped()
         self.xy, self.near_side, self.labels, self.persons = xy, near_side, list(labels), list(persons)
+        if abs(self.aspect() - old) > 1e-3:
+            self.aspectChanged.emit()
         self.update()
 
     def mousePressEvent(self, event):
@@ -61,11 +68,13 @@ class FrameView(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(30, 30, 30))
         if self.image is None:
-            painter.setPen(QColor(160, 160, 160))
-            painter.drawText(self.rect(), Qt.AlignCenter, self.placeholder)
+            painter.fillRect(self.rect(), QColor(235, 237, 240))
+            painter.setPen(QColor(120, 120, 120))
+            painter.drawText(self.rect().adjusted(24, 16, -24, -16), Qt.AlignCenter | Qt.TextWordWrap,
+                             self.placeholder)
             return
+        # 版面已依影片比例調整（VideoRow），影像填滿元件、不留黑邊；比例差一兩個像素時以視窗底色補
         painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
         target = self.targetRect()
         painter.drawImage(target, self.image)
@@ -141,6 +150,51 @@ class FrameView(QWidget):
             painter.drawText(box, Qt.AlignCenter, tag)
 
 
+class VideoRow(QWidget):
+    """上排：左上角影片 │ 數字區 │ 功能按鈕。
+
+    影片框依影片寬高比決定大小（不裁切、不留黑邊）：先以整列高度換算寬度，若會擠壓數字區與按鈕，
+    改以可用寬度換算高度，影片仍貼齊左上角。
+    """
+    GAP = 10
+
+    def __init__(self, view, middle, side, middle_min_width=320, parent=None):
+        super().__init__(parent)
+        self.view, self.middle, self.side = view, middle, side
+        self.middle_min_width = middle_min_width
+        for widget in (view, middle, side):
+            widget.setParent(self)
+        view.aspectChanged.connect(self.relayout)
+
+    def minimumSizeHint(self):
+        side = self.side.minimumSizeHint()
+        width = self.view.minimumWidth() + self.middle_min_width + side.width() + 2 * self.GAP
+        height = max(side.height(), self.middle.minimumSizeHint().height(), self.view.minimumHeight())
+        return QSize(width, height)
+
+    def sizeHint(self):
+        return self.minimumSizeHint()
+
+    def videoRect(self):
+        width, height = self.width(), self.height()
+        side_w = max(self.side.sizeHint().width(), self.side.minimumWidth())
+        room = max(width - side_w - self.middle_min_width - 2 * self.GAP, self.view.minimumWidth())
+        video_w = min(height * self.view.aspect(), room)
+        return QRect(0, 0, int(round(video_w)), int(round(video_w / self.view.aspect())))
+
+    def relayout(self):
+        video = self.videoRect()
+        side_w = max(self.side.sizeHint().width(), self.side.minimumWidth())
+        self.view.setGeometry(video)
+        self.side.setGeometry(self.width() - side_w, 0, side_w, self.height())
+        x = video.width() + self.GAP
+        self.middle.setGeometry(x, 0, max(self.width() - side_w - self.GAP - x, 0), self.height())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.relayout()
+
+
 class AnglePlot(pg.PlotWidget):
     """角度對時間曲線，含可拖曳的時間游標；拖曳或點擊會發出 seekRequested(秒)。"""
     seekRequested = pyqtSignal(float)
@@ -193,14 +247,14 @@ class AnglePlot(pg.PlotWidget):
 
 
 class SummaryPanel(QWidget):
-    """數字面板：步頻、膝活動範圍、最大髖伸展、軀幹前傾角。"""
+    """數字面板（2×2）：步頻、膝活動範圍、最大髖伸展、軀幹前傾角。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        layout = QHBoxLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.cards = []
-        for _ in range(4):
+        for index in range(4):
             card = QFrame()
             card.setStyleSheet('QFrame { background: #f5f7fa; border: 1px solid #d0d7de; border-radius: 6px; }'
                                'QLabel { border: none; background: transparent; }')
@@ -213,7 +267,7 @@ class SummaryPanel(QWidget):
                 label.setStyleSheet(style)
                 label.setWordWrap(True)
                 box.addWidget(label)
-            layout.addWidget(card)
+            layout.addWidget(card, index // 2, index % 2)
             self.cards.append(labels)
         self.setValues(None)
 

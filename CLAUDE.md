@@ -47,7 +47,7 @@ Db/pretrain/
 Src/UI_Control/
 ├── main.py                  # 主程式入口（只有步態分析一個畫面）
 ├── gait_widget.py           # 步態分析主畫面（載入、播放、點選目標、批量分析、匯出）
-├── gait_views.py            # 顯示元件（FrameView、AnglePlot、SummaryPanel）
+├── gait_views.py            # 顯示元件（FrameView、VideoRow 上排版面、AnglePlot、SummaryPanel）
 ├── ui/main_window.py        # PyQt5 主視窗 UI
 └── utils/model.py           # 模型載入（YOLO + ViTPose + BoTSORT）
 

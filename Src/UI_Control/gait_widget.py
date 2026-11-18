@@ -22,7 +22,7 @@ from gait_analysis.pipeline import (DERIVED_VIDEOS, SAVED, analyze_video, derive
 from gait_analysis.render_demo import blur_face, render   # noqa: E402
 from gait_analysis.style import IMU_COLOR, VIDEO_COLOR, VIDIMU_FOOTER   # noqa: E402
 from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_videos   # noqa: E402
-from gait_views import AnglePlot, FrameView, SummaryPanel   # noqa: E402
+from gait_views import AnglePlot, FrameView, SummaryPanel, VideoRow   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
 
@@ -125,22 +125,36 @@ class GaitTabControl(QWidget):
     # ------------------------------------------------------------------ UI
 
     def setupUi(self):
-        self.headerLabel = QLabel('')
-        self.headerLabel.setStyleSheet('font-size: 13pt; color: #555;')
+        """版面：上排「影片（左上）│ 數字區 │ 功能按鈕」，下方髖、膝曲線全寬堆疊，最底下是播放進度條。"""
         self.view = FrameView()
+        self.view.placeholder = ('請載入側拍行走影片\n\n'
+                                 '影片需為側面拍攝、受試者在畫面中左右來回行走。檔名為 VIDIMU 格式'
+                                 '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n'
+                                 '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。')
+        self.view.setToolTip('畫面中有多人時，點選要分析的人即可重算')
         self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-30, 50))
         self.kneePlot = AnglePlot('膝關節屈曲角度', (-10, 80))
         self.kneePlot.setXLink(self.hipPlot)
-        plots = QVBoxLayout()
-        plots.addWidget(self.hipPlot)
-        plots.addWidget(self.kneePlot)
-        display = QHBoxLayout()
-        display.addWidget(self.view, 1)
-        display.addLayout(plots, 1)
 
+        # 數字區：檔頭、四項指標、分析摘要、資料來源
+        self.headerLabel = QLabel('')
+        self.headerLabel.setStyleSheet('font-size: 13pt; color: #555;')
+        self.headerLabel.setWordWrap(True)
         self.summaryPanel = SummaryPanel()
+        self.infoLabel = QLabel('')
+        self.infoLabel.setWordWrap(True)
+        self.infoLabel.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.footerLabel = QLabel('')
         self.footerLabel.setStyleSheet('color: #777;')
+        self.footerLabel.setWordWrap(True)
+        numbers = QWidget()
+        numbersLayout = QVBoxLayout(numbers)
+        numbersLayout.setContentsMargins(0, 0, 0, 0)
+        numbersLayout.addWidget(self.headerLabel)
+        numbersLayout.addWidget(self.summaryPanel)
+        numbersLayout.addWidget(self.infoLabel)
+        numbersLayout.addStretch(1)
+        numbersLayout.addWidget(self.footerLabel)
 
         self.backBtn = QPushButton('<<')
         self.playBtn = QPushButton('▶︎')
@@ -148,6 +162,7 @@ class GaitTabControl(QWidget):
         for button in (self.backBtn, self.playBtn, self.forwardBtn):
             button.setFixedSize(50, 30)
         self.frameSlider = QSlider(Qt.Horizontal)
+        self.frameSlider.setToolTip('鍵盤：A／D 逐格、空白鍵播放／暫停')
         self.frameNumLabel = QLabel('0/0')
         self.followCheckBox = QCheckBox('曲線跟隨播放')
         self.followCheckBox.setChecked(True)
@@ -156,13 +171,6 @@ class GaitTabControl(QWidget):
         for widget in (self.backBtn, self.playBtn, self.forwardBtn, self.frameSlider, self.frameNumLabel,
                        self.followCheckBox):
             controls.addWidget(widget)
-
-        left = QVBoxLayout()
-        left.addWidget(self.headerLabel)
-        left.addLayout(display, 1)
-        left.addWidget(self.summaryPanel)
-        left.addWidget(self.footerLabel)
-        left.addLayout(controls)
 
         self.loadBtn = QPushButton('載入影片')
         self.imuBtn = QPushButton('分析含 IMU 步態影片')
@@ -174,37 +182,30 @@ class GaitTabControl(QWidget):
         self.cancelBtn = QPushButton('取消')
         for button in (self.loadBtn, self.imuBtn, self.batchBtn, self.autoTargetBtn, self.exportBtn,
                        self.openFolderBtn, self.cancelBtn):
-            button.setMinimumHeight(40)
+            button.setMinimumHeight(34)
         self.fileLabel = QLabel('檔名：')
+        self.fileLabel.setWordWrap(True)
         self.targetLabel = QLabel('')
         self.targetLabel.setWordWrap(True)
         self.statusLabel = QLabel('')
         self.statusLabel.setWordWrap(True)
         self.progressBar = QProgressBar()
         self.progressBar.setVisible(False)
-        self.infoLabel = QLabel('')
-        self.infoLabel.setWordWrap(True)
-        self.infoLabel.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         panel = QGroupBox('步態分析')
-        panel.setFixedWidth(300)
+        panel.setFixedWidth(250)
         side = QVBoxLayout(panel)
         for widget in (self.fileLabel, self.loadBtn, self.imuBtn, self.batchBtn, self.targetLabel, self.autoTargetBtn,
-                       self.exportBtn, self.openFolderBtn, self.cancelBtn, self.progressBar, self.statusLabel,
-                       self.infoLabel):
+                       self.exportBtn, self.openFolderBtn, self.cancelBtn, self.progressBar, self.statusLabel):
             side.addWidget(widget)
         side.addStretch(1)
-        hint = QLabel('影片需為側面拍攝、受試者在畫面中左右來回行走。檔名為 VIDIMU 格式'
-                      '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n\n'
-                      '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。\n\n'
-                      '鍵盤：A／D 逐格、空白鍵播放。拖曳或點擊曲線可跳到該時間。')
-        hint.setWordWrap(True)
-        hint.setStyleSheet('color: #777777;')
-        side.addWidget(hint)
 
-        layout = QHBoxLayout(self)
-        layout.addLayout(left, 1)
-        layout.addWidget(panel)
+        self.topRow = VideoRow(self.view, numbers, panel)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.topRow, 5)
+        layout.addWidget(self.hipPlot, 3)
+        layout.addWidget(self.kneePlot, 3)
+        layout.addLayout(controls)
 
     def bindUi(self):
         self.loadBtn.clicked.connect(self.loadVideo)

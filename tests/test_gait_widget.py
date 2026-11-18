@@ -74,6 +74,38 @@ class PipelineTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_DEMO, 'VIDIMU S52_A01_T02 資料或關節點快取不存在')
+class LayoutTests(unittest.TestCase):
+    def show(self, frame_size, window_size):
+        widget = GaitTabControl(Mock())
+        widget.resize(*window_size)
+        widget.show()
+        height, width = frame_size
+        widget.view.setFrame(np.zeros((height, width, 3), np.uint8), np.full((26, 2), np.nan), None)
+        APP.processEvents()
+        self.addCleanup(widget.close)
+        return widget
+
+    def test_video_sits_top_left_without_bars(self):
+        # 教授要求：影片在左上角、不裁切不留黑邊 → 影片框比例與影片相同；數字區在右、按鈕最右，互不重疊
+        for frame_size in ((480, 640), (1080, 1920), (1920, 1080)):
+            for window_size in ((1600, 900), (1250, 780)):
+                widget = self.show(frame_size, window_size)
+                view, numbers, side = (w.geometry() for w in (widget.view, widget.summaryPanel.parentWidget(),
+                                                              widget.loadBtn.parentWidget()))
+                with self.subTest(frame=frame_size, window=window_size):
+                    self.assertEqual((view.x(), view.y()), (0, 0))
+                    self.assertAlmostEqual(view.width() / view.height(), frame_size[1] / frame_size[0], delta=0.02)
+                    self.assertLess(view.right(), numbers.left())
+                    self.assertLess(numbers.right(), side.left())
+                    self.assertLessEqual(side.right(), widget.topRow.width())
+
+    def test_curves_sit_between_top_row_and_slider(self):
+        widget = self.show((480, 640), (1250, 780))
+        ys = [w.mapTo(widget, w.rect().topLeft()).y()
+              for w in (widget.topRow, widget.hipPlot, widget.kneePlot, widget.frameSlider)]
+        self.assertEqual(ys, sorted(ys))
+
+
 class GaitWidgetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
