@@ -98,6 +98,26 @@ class LayoutTests(unittest.TestCase):           # 合成畫面，不需要資料
                     self.assertLess(numbers.right(), side.left())
                     self.assertLessEqual(side.right(), widget.topRow.width())
 
+    def test_top_row_gets_default_share_and_splitter_is_draggable(self):
+        import gait_widget
+        widget = self.show((480, 640), (1600, 900))
+        top, curves = widget.splitter.sizes()
+        self.assertAlmostEqual(top / (top + curves), gait_widget.TOP_SHARE, delta=0.03)
+        self.assertGreaterEqual(widget.view.width(), 600)            # 1600×900 時影片寬至少 600
+        dragged = top - 80                                           # 使用者往上拖：影片變小、曲線變大
+        widget.splitter.setSizes([dragged, top + curves - dragged])
+        APP.processEvents()
+        self.assertLessEqual(widget.view.height(), dragged)
+        widget.resize(1610, 900)
+        APP.processEvents()
+        self.assertLess(widget.splitter.sizes()[0], top - 60)        # 之後縮放視窗不會蓋掉使用者的拖曳
+
+    def test_curves_keep_minimum_height_in_small_window(self):
+        import gait_widget
+        widget = self.show((480, 640), (1250, 780))
+        for plot in (widget.hipPlot, widget.kneePlot):
+            self.assertGreaterEqual(plot.height(), gait_widget.PLOT_MIN_HEIGHT)
+
     def test_curves_sit_between_top_row_and_slider(self):
         widget = self.show((480, 640), (1250, 780))
         ys = [w.mapTo(widget, w.rect().topLeft()).y()

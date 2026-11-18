@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar,
-                             QPushButton, QSlider, QVBoxLayout, QWidget)
+                             QPushButton, QSlider, QSplitter, QVBoxLayout, QWidget)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -25,6 +25,8 @@ from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_vide
 from gait_views import AnglePlot, FrameView, SummaryPanel, VideoRow   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
+TOP_SHARE = 0.56                               # 上排（影片、數字、按鈕）預設佔可用高度的比例
+PLOT_MIN_HEIGHT = 175                          # 每張曲線圖最小高度（像素），刻度與最大伸展標籤才放得下
 
 
 class AnalysisThread(QThread):
@@ -135,6 +137,8 @@ class GaitTabControl(QWidget):
         self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-35, 50))
         self.kneePlot = AnglePlot('膝關節屈曲角度', (-10, 80))
         self.kneePlot.setXLink(self.hipPlot)
+        for plot in (self.hipPlot, self.kneePlot):
+            plot.setMinimumHeight(PLOT_MIN_HEIGHT)      # 小視窗時曲線不被壓扁，改由上排讓出空間
 
         # 數字區：檔頭、四項指標、分析摘要、資料來源
         self.headerLabel = QLabel('')
@@ -205,11 +209,35 @@ class GaitTabControl(QWidget):
         side.addStretch(1)
 
         self.topRow = VideoRow(self.view, numbers, panel)
+        curves = QWidget()
+        curvesLayout = QVBoxLayout(curves)
+        curvesLayout.setContentsMargins(0, 0, 0, 0)
+        curvesLayout.addWidget(self.hipPlot)
+        curvesLayout.addWidget(self.kneePlot)
+        # 上排（影片）與曲線之間可拖曳分隔線調整比例；預設上排佔 TOP_SHARE
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.addWidget(self.topRow)
+        self.splitter.addWidget(curves)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(8)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setToolTip('拖曳上下分隔線可調整影片與曲線的大小')
+        self.splitterInitialized = False
         layout = QVBoxLayout(self)
-        layout.addWidget(self.topRow, 5)
-        layout.addWidget(self.hipPlot, 3)
-        layout.addWidget(self.kneePlot, 3)
+        layout.addWidget(self.splitter, 1)
         layout.addLayout(controls)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self.splitterInitialized:
+            # 只在第一次顯示（版面算好之後）套用預設比例；之後縮放視窗保留使用者拖曳的位置
+            self.splitterInitialized = True
+            QTimer.singleShot(0, self.applyDefaultSplit)
+
+    def applyDefaultSplit(self):
+        height = sum(self.splitter.sizes())
+        self.splitter.setSizes([int(height * TOP_SHARE), height - int(height * TOP_SHARE)])
 
     def bindUi(self):
         self.loadBtn.clicked.connect(self.loadVideo)
