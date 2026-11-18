@@ -149,14 +149,16 @@ class LayoutTests(unittest.TestCase):           # 合成畫面，不需要資料
         # 預設 6 秒寬時，時間軸不論視窗多寬都只標整數秒（不冒出 10.2、10.4 等細刻度）
         from PyQt5.QtGui import QImage, QPainter
         widget = self.show((480, 640), (1920, 1000))
-        widget.hipPlot.setXRange(10, 16, padding=0)
-        APP.processEvents()
-        image = QImage(10, 10, QImage.Format_RGB32)
-        painter = QPainter(image)
-        texts = [spec[2] for spec in widget.hipPlot.getAxis('bottom').generateDrawSpecs(painter)[2]]
-        painter.end()
-        self.assertTrue(texts)
-        self.assertFalse([t for t in texts if '.' in t])
+        for x_range in (None, (10, 16)):                 # None：尚未載入影片的初始畫面
+            if x_range:
+                widget.hipPlot.setXRange(*x_range, padding=0)
+            APP.processEvents()
+            image = QImage(10, 10, QImage.Format_RGB32)
+            painter = QPainter(image)
+            texts = [spec[2] for spec in widget.hipPlot.getAxis('bottom').generateDrawSpecs(painter)[2]]
+            painter.end()
+            self.assertTrue(texts)
+            self.assertFalse([t for t in texts if '.' in t or '-' in t], texts)
 
     def test_curves_sit_between_top_row_and_slider(self):
         widget = self.show((480, 640), (1250, 780))

@@ -145,6 +145,8 @@ class GaitTabControl(QWidget):
             plot.setMinimumHeight(PLOT_MIN_HEIGHT)      # 小視窗時曲線不被壓扁，改由上排讓出空間
         self.syncingX = False
         self.shownCurves = list(DEFAULT_CURVES)         # 依勾選先後排列，勾第 3 張時取消最早勾的那張
+        for plot in self.plots.values():                # 尚未載入影片時也顯示 0～6 秒（避免 −0.4、0.2 等小數刻度）
+            plot.setXRange(0, FOLLOW_BEFORE_S + FOLLOW_AFTER_S, padding=0)
 
         # 數字區：檔頭、四項指標、分析摘要、資料來源
         self.headerLabel = QLabel('')
