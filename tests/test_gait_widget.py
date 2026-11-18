@@ -73,8 +73,7 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(max(image.pixelColor(x + dx, y).red() for dx in (-1, 0, 1)), 60)
 
 
-@unittest.skipUnless(HAS_DEMO, 'VIDIMU S52_A01_T02 資料或關節點快取不存在')
-class LayoutTests(unittest.TestCase):
+class LayoutTests(unittest.TestCase):           # 合成畫面，不需要資料集
     def show(self, frame_size, window_size):
         widget = GaitTabControl(Mock())
         widget.resize(*window_size)
@@ -106,6 +105,7 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(ys, sorted(ys))
 
 
+@unittest.skipUnless(HAS_DEMO, 'VIDIMU S52_A01_T02 資料或關節點快取不存在')
 class GaitWidgetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
