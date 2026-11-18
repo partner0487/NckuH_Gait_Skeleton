@@ -434,6 +434,7 @@ class GaitTabControl(QWidget):
         self.statusLabel.setText('分析完成')
         self.infoLabel.setText(self.summaryText(analysis))
         self.targetLabel.setText(self.targetText(analysis))
+        self.hipPlot.setXRange(0, FOLLOW_BEFORE_S + FOLLOW_AFTER_S, padding=0)     # 新影片從預設 6 秒寬開始
         self.showFrame(frame)
         self.setLoaded(True)
 
@@ -530,6 +531,9 @@ class GaitTabControl(QWidget):
     def followCurrent(self):
         if self.renderer is None or not self.followCheckBox.isChecked() or self.current_frame < 0:
             return
+        # 沿用使用者目前的縮放寬度，只平移：游標保持在畫面前 4／後 2 的比例位置
         t = self.current_frame / self.analysis.result.fps
-        start = max(0.0, t - FOLLOW_BEFORE_S)
-        self.hipPlot.setXRange(start, start + FOLLOW_BEFORE_S + FOLLOW_AFTER_S, padding=0)
+        x0, x1 = self.hipPlot.viewRange()[0]
+        width = x1 - x0
+        start = max(0.0, t - width * FOLLOW_BEFORE_S / (FOLLOW_BEFORE_S + FOLLOW_AFTER_S))
+        self.hipPlot.setXRange(start, start + width, padding=0)

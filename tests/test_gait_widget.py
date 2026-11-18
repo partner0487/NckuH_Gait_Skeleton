@@ -162,6 +162,23 @@ class GaitWidgetTests(unittest.TestCase):
         self.assertTrue(x_min <= 20.0 <= x_max)
         widget.shutdown()
 
+    def test_follow_keeps_user_zoom(self):
+        # 縮放曲線後拖動時間軸，只平移、不變回預設 6 秒寬；換新影片才回到預設寬度
+        widget = GaitTabControl(Mock())
+        widget.onAnalyzed(self.analysis)
+        x_min, x_max = widget.hipPlot.viewRange()[0]
+        self.assertAlmostEqual(x_max - x_min, 6.0, places=2)
+        widget.hipPlot.setXRange(5.0, 17.0, padding=0)        # 使用者縮放成 12 秒寬
+        widget.frameSlider.setValue(900)                      # 30 秒
+        x_min, x_max = widget.hipPlot.viewRange()[0]
+        self.assertAlmostEqual(x_max - x_min, 12.0, places=2)
+        self.assertAlmostEqual(x_min, 30.0 - 8.0, places=2)   # 游標仍在前 2/3 處
+        self.assertAlmostEqual(widget.kneePlot.viewRange()[0][1] - widget.kneePlot.viewRange()[0][0], 12.0, places=2)
+        widget.onAnalyzed(self.analysis)
+        x_min, x_max = widget.hipPlot.viewRange()[0]
+        self.assertAlmostEqual(x_max - x_min, 6.0, places=2)
+        widget.shutdown()
+
     def test_frame_view_paints_at_any_size(self):
         view = FrameView()
         frame = np.full((480, 640, 3), 128, np.uint8)
