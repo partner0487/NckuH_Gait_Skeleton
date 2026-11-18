@@ -145,6 +145,19 @@ class LayoutTests(unittest.TestCase):           # 合成畫面，不需要資料
         for plot in (widget.hipPlot, widget.kneePlot):
             self.assertGreaterEqual(plot.height(), gait_widget.PLOT_MIN_HEIGHT)
 
+    def test_default_time_axis_has_whole_seconds(self):
+        # 預設 6 秒寬時，時間軸不論視窗多寬都只標整數秒（不冒出 10.2、10.4 等細刻度）
+        from PyQt5.QtGui import QImage, QPainter
+        widget = self.show((480, 640), (1920, 1000))
+        widget.hipPlot.setXRange(10, 16, padding=0)
+        APP.processEvents()
+        image = QImage(10, 10, QImage.Format_RGB32)
+        painter = QPainter(image)
+        texts = [spec[2] for spec in widget.hipPlot.getAxis('bottom').generateDrawSpecs(painter)[2]]
+        painter.end()
+        self.assertTrue(texts)
+        self.assertFalse([t for t in texts if '.' in t])
+
     def test_curves_sit_between_top_row_and_slider(self):
         widget = self.show((480, 640), (1250, 780))
         ys = [w.mapTo(widget, w.rect().topLeft()).y()

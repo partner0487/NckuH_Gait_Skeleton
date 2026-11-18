@@ -232,6 +232,9 @@ class AnglePlot(pg.PlotWidget):
             axis.setTextPen('#333333')
             axis.setStyle(tickTextOffset=6)
             self.setLabel(name, text, **{'font-size': f'{PLOT_LABEL_PT}pt', 'color': '#333333'})
+        # 時間軸只標主、次刻度：預設 6 秒寬時都是整數秒，視窗較寬時才不會冒出 10.2、10.4 等細刻度文字
+        # （放大到 1 秒左右時主、次刻度本身就是小數，仍會顯示）
+        self.getAxis('bottom').setStyle(maxTextLevel=1)
         self.showGrid(x=True, y=True, alpha=0.25)
         self.setYRange(*y_range, padding=0)
         self.setMouseEnabled(x=True, y=False)
