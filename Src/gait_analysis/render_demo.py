@@ -186,6 +186,8 @@ class DemoRenderer:
         self.footer = footer
         self.hip = near_series(result, {s: result.angles[s]['hip'] for s in ('L', 'R')})
         self.knee = near_series(result, {s: result.angles[s]['knee'] for s in ('L', 'R')})
+        self.ankle = near_series(result, {s: result.angles[s]['ankle'] for s in ('L', 'R')})
+        self.trunk = near_series(result, {s: result.angles[s]['trunk'] for s in ('L', 'R')})
         self.near_by_frame = near_side_by_frame(result.passes)
 
         strides = result.strides

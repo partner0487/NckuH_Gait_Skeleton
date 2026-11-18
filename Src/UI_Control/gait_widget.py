@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar,
-                             QPushButton, QSlider, QSplitter, QVBoxLayout, QWidget)
+                             QPushButton, QSlider, QVBoxLayout, QWidget)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -25,8 +25,15 @@ from gait_analysis.vidimu import OUTPUT_ROOT, PROJECT_ROOT, VIDEO_DIR, gait_vide
 from gait_views import AnglePlot, FrameView, SummaryPanel, VideoRow   # noqa: E402
 
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
-TOP_SHARE = 0.56                               # 上排（影片、數字、按鈕）預設佔可用高度的比例
+TOP_STRETCH, CURVES_STRETCH = 56, 44           # 上排（影片、數字、按鈕）與曲線區固定的高度比例
 PLOT_MIN_HEIGHT = 175                          # 每張曲線圖最小高度（像素），刻度與最大伸展標籤才放得下
+# 可顯示的曲線：(代號, 勾選框文字, 標題, 縱軸範圍)；一次只顯示 SHOWN_CURVES 張，避免每張太小
+CURVES = (('hip', '髖關節', '髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-35, 50)),
+          ('knee', '膝關節', '膝關節屈曲角度', (-10, 80)),
+          ('ankle', '踝關節', '踝關節背屈角度（正值＝背屈，負值＝蹠屈）', (-35, 30)),
+          ('trunk', '軀幹', '軀幹前傾角度（正值＝前傾）', (-20, 20)))
+SHOWN_CURVES = 2
+DEFAULT_CURVES = ('hip', 'knee')
 
 
 class AnalysisThread(QThread):
@@ -133,11 +140,13 @@ class GaitTabControl(QWidget):
                                  '影片需為側面拍攝、受試者在畫面中左右來回行走。檔名為 VIDIMU 格式'
                                  '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n'
                                  '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。')
-        self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-35, 50))
-        self.kneePlot = AnglePlot('膝關節屈曲角度', (-10, 80))
-        self.kneePlot.setXLink(self.hipPlot)
-        for plot in (self.hipPlot, self.kneePlot):
+        self.plots = {key: AnglePlot(title, y_range) for key, _, title, y_range in CURVES}
+        self.hipPlot, self.kneePlot = self.plots['hip'], self.plots['knee']
+        self.anklePlot, self.trunkPlot = self.plots['ankle'], self.plots['trunk']
+        for plot in self.plots.values():
             plot.setMinimumHeight(PLOT_MIN_HEIGHT)      # 小視窗時曲線不被壓扁，改由上排讓出空間
+        self.syncingX = False
+        self.shownCurves = list(DEFAULT_CURVES)         # 依勾選先後排列，勾第 3 張時取消最早勾的那張
 
         # 數字區：檔頭、四項指標、分析摘要、資料來源
         self.headerLabel = QLabel('')
@@ -204,35 +213,65 @@ class GaitTabControl(QWidget):
             side.addWidget(widget)
         side.addStretch(1)
 
+        # 曲線右側：勾選要顯示的 2 張曲線（寬度與上方按鈕欄對齊）
+        self.curveChecks = {}
+        curvePanel = QGroupBox(f'顯示曲線（選 {SHOWN_CURVES} 張）')
+        curvePanel.setFixedWidth(panel.maximumWidth())
+        curvePanel.setStyleSheet('QGroupBox, QCheckBox { font-size: 12pt; }')
+        curveSide = QVBoxLayout(curvePanel)
+        for key, label, _, _ in CURVES:
+            box = QCheckBox(label)
+            box.setChecked(key in self.shownCurves)
+            self.curveChecks[key] = box
+            curveSide.addWidget(box)
+        curveSide.addStretch(1)
+
         self.topRow = VideoRow(self.view, numbers, panel)
-        curves = QWidget()
-        curvesLayout = QVBoxLayout(curves)
-        curvesLayout.setContentsMargins(0, 0, 0, 0)
-        curvesLayout.addWidget(self.hipPlot)
-        curvesLayout.addWidget(self.kneePlot)
-        # 上排（影片）與曲線之間可拖曳分隔線調整比例；預設上排佔 TOP_SHARE
-        self.splitter = QSplitter(Qt.Vertical)
-        self.splitter.addWidget(self.topRow)
-        self.splitter.addWidget(curves)
-        self.splitter.setChildrenCollapsible(False)
-        self.splitter.setHandleWidth(8)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitterInitialized = False
+        plotsLayout = QVBoxLayout()
+        for plot in self.plots.values():
+            plotsLayout.addWidget(plot)
+        curvesRow = QHBoxLayout()
+        curvesRow.addLayout(plotsLayout, 1)
+        curvesRow.addSpacing(VideoRow.GAP)
+        curvesRow.addWidget(curvePanel)
+        # 上排與曲線區比例固定；顯示的曲線張數固定，切換曲線時每張大小不變
         layout = QVBoxLayout(self)
-        layout.addWidget(self.splitter, 1)
+        layout.addWidget(self.topRow, TOP_STRETCH)
+        layout.addLayout(curvesRow, CURVES_STRETCH)
         layout.addLayout(controls)
+        self.updateCurveVisibility()
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        if not self.splitterInitialized:
-            # 只在第一次顯示（版面算好之後）套用預設比例；之後縮放視窗保留使用者拖曳的位置
-            self.splitterInitialized = True
-            QTimer.singleShot(0, self.applyDefaultSplit)
+    def onCurveToggled(self, key, checked):
+        if checked and key not in self.shownCurves:
+            self.shownCurves.append(key)
+            if len(self.shownCurves) > SHOWN_CURVES:
+                oldest = self.shownCurves.pop(0)
+                self.setCurveChecked(oldest, False)
+        elif not checked and key in self.shownCurves:
+            self.setCurveChecked(key, True)              # 固定顯示 2 張：要換曲線請勾另一張
+        self.updateCurveVisibility()
 
-    def applyDefaultSplit(self):
-        height = sum(self.splitter.sizes())
-        self.splitter.setSizes([int(height * TOP_SHARE), height - int(height * TOP_SHARE)])
+    def setCurveChecked(self, key, checked):
+        box = self.curveChecks[key]
+        blocked = box.blockSignals(True)
+        box.setChecked(checked)
+        box.blockSignals(blocked)
+
+    def updateCurveVisibility(self):
+        for key, plot in self.plots.items():
+            plot.setVisible(key in self.shownCurves)
+
+    def onXRangeChanged(self, source, x_range):
+        # 自行同步各曲線的時間軸：pyqtgraph 的 setXLink 依元件寬度換算，隱藏中的曲線寬度不準
+        if self.syncingX:
+            return
+        self.syncingX = True
+        try:
+            for plot in self.plots.values():
+                if plot is not source:
+                    plot.setXRange(*x_range, padding=0)
+        finally:
+            self.syncingX = False
 
     def bindUi(self):
         self.loadBtn.clicked.connect(self.loadVideo)
@@ -247,8 +286,11 @@ class GaitTabControl(QWidget):
         self.backBtn.clicked.connect(lambda: self.frameSlider.setValue(self.frameSlider.value() - 1))
         self.forwardBtn.clicked.connect(lambda: self.frameSlider.setValue(self.frameSlider.value() + 1))
         self.frameSlider.valueChanged.connect(self.showFrame)
-        for plot in (self.hipPlot, self.kneePlot):
+        for plot in self.plots.values():
             plot.seekRequested.connect(self.seekTime)
+            plot.sigXRangeChanged.connect(lambda _, x_range, source=plot: self.onXRangeChanged(source, x_range))
+        for key, box in self.curveChecks.items():
+            box.toggled.connect(lambda checked, key=key: self.onCurveToggled(key, checked))
         self.followCheckBox.toggled.connect(self.followCurrent)
 
     def setLoaded(self, loaded):
@@ -444,6 +486,8 @@ class GaitTabControl(QWidget):
         if renderer.imu_knee is not None:
             knee.append((renderer.imu_knee, IMU_COLOR, 2, '穿戴式感測器 IMU', True))
         self.kneePlot.setSeries(times, knee)
+        self.anklePlot.setSeries(times, [(renderer.ankle, VIDEO_COLOR, 2.5, '影片', False)])
+        self.trunkPlot.setSeries(times, [(renderer.trunk, VIDEO_COLOR, 2.5, '影片', False)])
         self.summaryPanel.setValues(analysis.values)
         self.headerLabel.setText(analysis.header)
         self.footerLabel.setText(VIDIMU_FOOTER if analysis.trial is not None else '')
@@ -546,7 +590,7 @@ class GaitTabControl(QWidget):
         self.view.setFrame(frame, result.xy[frame_idx], renderer.near_by_frame.get(frame_idx),
                            renderer.event_labels(frame_idx), self.analysis.persons_at(frame_idx))
         t = frame_idx / result.fps
-        for plot in (self.hipPlot, self.kneePlot):
+        for plot in self.plots.values():
             plot.setTimeCursor(t)
         self.followCurrent()
         self.frameNumLabel.setText(f'{frame_idx}/{renderer.n_frames - 1}　{t:.2f} 秒')

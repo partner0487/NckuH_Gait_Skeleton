@@ -98,23 +98,40 @@ class LayoutTests(unittest.TestCase):           # 合成畫面，不需要資料
                     self.assertLess(numbers.right(), side.left())
                     self.assertLessEqual(side.right(), widget.topRow.width())
 
-    def test_top_row_gets_default_share_and_splitter_is_draggable(self):
-        import gait_widget
+    def test_video_keeps_size_at_1600x900(self):
         widget = self.show((480, 640), (1600, 900))
-        top, curves = widget.splitter.sizes()
-        self.assertAlmostEqual(top / (top + curves), gait_widget.TOP_SHARE, delta=0.03)
         self.assertGreaterEqual(widget.view.width(), 600)            # 1600×900 時影片寬至少 600
-        dragged = top - 80                                           # 使用者往上拖：影片變小、曲線變大
-        widget.splitter.setSizes([dragged, top + curves - dragged])
+
+    def test_two_curves_shown_and_switching_keeps_sizes(self):
+        # 教授要求：一次只顯示 2 張曲線，右側勾選要看哪 2 張；影片與曲線大小不隨切換改變
+        widget = self.show((480, 640), (1600, 900))
+        shown = lambda: [k for k, p in widget.plots.items() if p.isVisible()]      # noqa: E731
+        self.assertEqual(shown(), ['hip', 'knee'])
+        view_size, plot_size = widget.view.size(), widget.hipPlot.size()
+        widget.curveChecks['ankle'].setChecked(True)                  # 勾第 3 張 → 取消最早勾的髖關節
         APP.processEvents()
-        self.assertLessEqual(widget.view.height(), dragged)
-        widget.resize(1610, 900)
+        self.assertEqual(shown(), ['knee', 'ankle'])
+        self.assertFalse(widget.curveChecks['hip'].isChecked())
+        self.assertEqual(widget.view.size(), view_size)
+        self.assertEqual(widget.anklePlot.size(), plot_size)
+        widget.curveChecks['knee'].setChecked(False)                  # 不能只剩 1 張
         APP.processEvents()
-        self.assertLess(widget.splitter.sizes()[0], top - 60)        # 之後縮放視窗不會蓋掉使用者的拖曳
+        self.assertTrue(widget.curveChecks['knee'].isChecked())
+        self.assertEqual(shown(), ['knee', 'ankle'])
+        widget.curveChecks['trunk'].setChecked(True)
+        APP.processEvents()
+        self.assertEqual(shown(), ['ankle', 'trunk'])
+
+    def test_curve_selector_sits_right_of_curves(self):
+        widget = self.show((480, 640), (1600, 900))
+        box = widget.curveChecks['hip'].parentWidget()
+        plot_right = widget.hipPlot.mapTo(widget, widget.hipPlot.rect().topRight()).x()
+        self.assertLess(plot_right, box.mapTo(widget, box.rect().topLeft()).x())
 
     def test_curves_keep_minimum_height_in_small_window(self):
         import gait_widget
         widget = self.show((480, 640), (1250, 780))
+        self.assertEqual(widget.height(), 780)            # 數字區折行不會反過來把視窗撐高
         for plot in (widget.hipPlot, widget.kneePlot):
             self.assertGreaterEqual(plot.height(), gait_widget.PLOT_MIN_HEIGHT)
 
@@ -193,7 +210,9 @@ class GaitWidgetTests(unittest.TestCase):
         x_min, x_max = widget.hipPlot.viewRange()[0]
         self.assertAlmostEqual(x_max - x_min, 12.0, places=2)
         self.assertAlmostEqual(x_min, 30.0 - 8.0, places=2)   # 游標仍在前 2/3 處
-        self.assertAlmostEqual(widget.kneePlot.viewRange()[0][1] - widget.kneePlot.viewRange()[0][0], 12.0, places=2)
+        for plot in (widget.kneePlot, widget.anklePlot, widget.trunkPlot):       # 隱藏中的曲線也同步
+            self.assertAlmostEqual(plot.viewRange()[0][1] - plot.viewRange()[0][0], 12.0, places=2)
+            self.assertAlmostEqual(plot.viewRange()[0][0], 22.0, places=2)
         widget.onAnalyzed(self.analysis)
         x_min, x_max = widget.hipPlot.viewRange()[0]
         self.assertAlmostEqual(x_max - x_min, 6.0, places=2)

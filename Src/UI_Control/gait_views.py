@@ -155,7 +155,8 @@ class VideoRow(QWidget):
     """上排：左上角影片 │ 數字區 │ 功能按鈕。
 
     影片框依影片寬高比決定大小（不裁切、不留黑邊）：先以整列高度換算寬度，若會擠壓數字區與按鈕，
-    改以可用寬度換算高度，影片仍貼齊左上角。
+    改以可用寬度換算高度，影片仍貼齊左上角。數字區折行後放不下時，由影片縮小讓出寬度，
+    不反過來要求更多高度（否則高度↑→影片變寬→數字區變窄→高度再↑，視窗會被撐大）。
     """
     GAP = 10
 
@@ -163,16 +164,26 @@ class VideoRow(QWidget):
         super().__init__(parent)
         self.view, self.middle, self.side = view, middle, side
         self.middle_min_width = middle_min_width
-        self.middle_need = 0        # 數字區依目前寬度（折行後）需要的高度
         for widget in (view, middle, side):
             widget.setParent(self)
         view.aspectChanged.connect(self.relayout)
 
+    def sideWidth(self):
+        return max(self.side.sizeHint().width(), self.side.minimumWidth())
+
+    def middleWidth(self, video_w):
+        return max(self.width() - self.sideWidth() - 2 * self.GAP - video_w, 0)
+
+    def middleFits(self, video_w, height):
+        need = self.middle.heightForWidth(self.middleWidth(video_w))
+        return need <= height
+
     def minimumSizeHint(self):
         side = self.side.minimumSizeHint()
         width = self.view.minimumWidth() + self.middle_min_width + side.width() + 2 * self.GAP
+        widest = self.middleWidth(self.view.minimumWidth()) if self.width() >= width else self.middle_min_width
         height = max(side.height(), self.middle.minimumSizeHint().height(), self.view.minimumHeight(),
-                     self.middle_need)
+                     self.middle.heightForWidth(widest))
         return QSize(width, height)
 
     def sizeHint(self):
@@ -180,25 +191,26 @@ class VideoRow(QWidget):
 
     def videoRect(self):
         width, height = self.width(), self.height()
-        side_w = max(self.side.sizeHint().width(), self.side.minimumWidth())
-        room = max(width - side_w - self.middle_min_width - 2 * self.GAP, self.view.minimumWidth())
-        video_w = min(height * self.view.aspect(), room)
-        return QRect(0, 0, int(round(video_w)), int(round(video_w / self.view.aspect())))
+        lowest = self.view.minimumWidth()
+        room = max(width - self.sideWidth() - self.middle_min_width - 2 * self.GAP, lowest)
+        video_w = int(min(height * self.view.aspect(), room))
+        if not self.middleFits(video_w, height) and self.middleFits(lowest, height):
+            # 數字區需要的高度隨寬度遞減：二分搜尋數字區放得下的最大影片寬度
+            # （視窗矮到怎樣都放不下時，縮小影片也沒用，維持依高度換算的大小）
+            lo, hi = lowest, video_w
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                lo, hi = (mid, hi) if self.middleFits(mid, height) else (lo, mid - 1)
+            video_w = lo
+        return QRect(0, 0, video_w, int(round(video_w / self.view.aspect())))
 
     def relayout(self):
         video = self.videoRect()
-        side_w = max(self.side.sizeHint().width(), self.side.minimumWidth())
+        side_w = self.sideWidth()
         self.view.setGeometry(video)
         self.side.setGeometry(self.width() - side_w, 0, side_w, self.height())
         x = video.width() + self.GAP
-        middle_w = max(self.width() - side_w - self.GAP - x, 0)
-        self.middle.setGeometry(x, 0, middle_w, self.height())
-        # 字較大、視窗較矮時數字卡說明會折行：把需要的高度回報給外層版面，由下方曲線讓出空間，
-        # 避免文字互相重疊（高度↑→影片變寬→數字區變窄→需要高度↑，單調收斂）
-        need = self.middle.heightForWidth(middle_w) if middle_w else -1
-        if need > 0 and abs(need - self.middle_need) > 2:
-            self.middle_need = need
-            self.updateGeometry()
+        self.middle.setGeometry(x, 0, self.middleWidth(video.width()), self.height())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
