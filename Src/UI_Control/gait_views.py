@@ -5,7 +5,7 @@
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import QPointF, QRect, QRectF, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPen
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPen
 from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from gait_analysis.gait import KPT, SKELETON_LINKS, side_index
@@ -17,6 +17,7 @@ TRUNK_COLOR = QColor(90, 90, 90)
 FULL_COLOR = QColor(225, 225, 225, 200)        # 完整骨架底層：淡灰
 FULL_EDGE = QColor(0, 0, 0, 90)
 MARK_COLOR = '#00a000'
+PLOT_TITLE_PT, PLOT_LABEL_PT, PLOT_TICK_PT, PLOT_LEGEND_PT = 15, 13, 12, 13     # 曲線圖字級
 
 
 class FrameView(QWidget):
@@ -162,6 +163,7 @@ class VideoRow(QWidget):
         super().__init__(parent)
         self.view, self.middle, self.side = view, middle, side
         self.middle_min_width = middle_min_width
+        self.middle_need = 0        # 數字區依目前寬度（折行後）需要的高度
         for widget in (view, middle, side):
             widget.setParent(self)
         view.aspectChanged.connect(self.relayout)
@@ -169,7 +171,8 @@ class VideoRow(QWidget):
     def minimumSizeHint(self):
         side = self.side.minimumSizeHint()
         width = self.view.minimumWidth() + self.middle_min_width + side.width() + 2 * self.GAP
-        height = max(side.height(), self.middle.minimumSizeHint().height(), self.view.minimumHeight())
+        height = max(side.height(), self.middle.minimumSizeHint().height(), self.view.minimumHeight(),
+                     self.middle_need)
         return QSize(width, height)
 
     def sizeHint(self):
@@ -188,7 +191,14 @@ class VideoRow(QWidget):
         self.view.setGeometry(video)
         self.side.setGeometry(self.width() - side_w, 0, side_w, self.height())
         x = video.width() + self.GAP
-        self.middle.setGeometry(x, 0, max(self.width() - side_w - self.GAP - x, 0), self.height())
+        middle_w = max(self.width() - side_w - self.GAP - x, 0)
+        self.middle.setGeometry(x, 0, middle_w, self.height())
+        # 字較大、視窗較矮時數字卡說明會折行：把需要的高度回報給外層版面，由下方曲線讓出空間，
+        # 避免文字互相重疊（高度↑→影片變寬→數字區變窄→需要高度↑，單調收斂）
+        need = self.middle.heightForWidth(middle_w) if middle_w else -1
+        if need > 0 and abs(need - self.middle_need) > 2:
+            self.middle_need = need
+            self.updateGeometry()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -201,15 +211,21 @@ class AnglePlot(pg.PlotWidget):
 
     def __init__(self, title, y_range, parent=None):
         super().__init__(parent, background='w')
-        self.setTitle(f'<span style="font-size: 12pt; color: #333">{title}</span>')
-        self.setLabel('left', '角度（度）')
-        self.setLabel('bottom', '時間（秒）')
+        self.setTitle(f'<span style="font-size: {PLOT_TITLE_PT}pt; font-weight: bold; color: #333">{title}</span>')
+        tick_font = QFont()
+        tick_font.setPointSize(PLOT_TICK_PT)
+        for name, text in (('left', '角度（度）'), ('bottom', '時間（秒）')):
+            axis = self.getAxis(name)
+            axis.setTickFont(tick_font)
+            axis.setTextPen('#333333')
+            axis.setStyle(tickTextOffset=6)
+            self.setLabel(name, text, **{'font-size': f'{PLOT_LABEL_PT}pt', 'color': '#333333'})
         self.showGrid(x=True, y=True, alpha=0.25)
         self.setYRange(*y_range, padding=0)
         self.setMouseEnabled(x=True, y=False)
         self.setMenuEnabled(False)
         self.hideButtons()
-        self.legend = self.addLegend(offset=(-10, 10), labelTextSize='10pt')
+        self.legend = self.addLegend(offset=(-10, 10), labelTextSize=f'{PLOT_LEGEND_PT}pt', labelTextColor='#333333')
         self.cursor = pg.InfiniteLine(angle=90, movable=True, pen=pg.mkPen('#444444', width=1.5))
         self.cursor.setZValue(10)
         self.cursor.sigDragged.connect(lambda line: self.seekRequested.emit(line.value()))
@@ -231,12 +247,16 @@ class AnglePlot(pg.PlotWidget):
             pen = pg.mkPen(color, width=width, style=Qt.DashLine if dashed else Qt.SolidLine)
             self.dynamic.append(self.plot(times, values, pen=pen, name=name, connect='finite'))
         if markers:
-            scatter = pg.ScatterPlotItem([m[0] for m in markers], [m[1] for m in markers], size=9,
+            scatter = pg.ScatterPlotItem([m[0] for m in markers], [m[1] for m in markers], size=11,
                                          brush=pg.mkBrush(MARK_COLOR), pen=pg.mkPen('w', width=1))
             self.addItem(scatter)
             self.dynamic.append(scatter)
             for t, value, text in markers:
                 label = pg.TextItem(text, color=MARK_COLOR, anchor=(0.5, -0.2))
+                marker_font = QFont()
+                marker_font.setPointSize(PLOT_LEGEND_PT)
+                marker_font.setBold(True)
+                label.setFont(marker_font)
                 label.setPos(t, value)
                 self.addItem(label)
                 self.dynamic.append(label)
@@ -259,13 +279,19 @@ class SummaryPanel(QWidget):
             card.setStyleSheet('QFrame { background: #f5f7fa; border: 1px solid #d0d7de; border-radius: 6px; }'
                                'QLabel { border: none; background: transparent; }')
             box = QVBoxLayout(card)
+            box.setContentsMargins(8, 6, 8, 6)
+            box.setSpacing(2)
             labels = [QLabel(), QLabel(), QLabel()]
-            for label, style in zip(labels, ('font-size: 11pt; color: #333;',
-                                             'font-size: 24pt; font-weight: bold; color: #222;',
-                                             'font-size: 9pt; color: #666;')):
+            for label, (size, bold, color) in zip(labels, ((15, True, '#333'), (32, True, '#222'), (12, False, '#555'))):
+                font = QFont(label.font())
+                font.setPointSize(size)
+                font.setBold(bold)
+                label.setFont(font)
+                label.setStyleSheet(f'color: {color};')
                 label.setAlignment(Qt.AlignCenter)
-                label.setStyleSheet(style)
                 label.setWordWrap(True)
+                # 大字至少保留一行高度，視窗較矮時卡片不會把數字壓扁切掉
+                label.setMinimumHeight(QFontMetrics(font).height())
                 box.addWidget(label)
             layout.addWidget(card, index // 2, index % 2)
             self.cards.append(labels)

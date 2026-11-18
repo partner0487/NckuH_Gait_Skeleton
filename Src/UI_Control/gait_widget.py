@@ -132,20 +132,21 @@ class GaitTabControl(QWidget):
                                  '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n'
                                  '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。')
         self.view.setToolTip('畫面中有多人時，點選要分析的人即可重算')
-        self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-30, 50))
+        self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-35, 50))
         self.kneePlot = AnglePlot('膝關節屈曲角度', (-10, 80))
         self.kneePlot.setXLink(self.hipPlot)
 
         # 數字區：檔頭、四項指標、分析摘要、資料來源
         self.headerLabel = QLabel('')
-        self.headerLabel.setStyleSheet('font-size: 13pt; color: #555;')
+        self.headerLabel.setStyleSheet('font-size: 17pt; font-weight: bold; color: #444;')
         self.headerLabel.setWordWrap(True)
         self.summaryPanel = SummaryPanel()
         self.infoLabel = QLabel('')
+        self.infoLabel.setStyleSheet('font-size: 12pt;')
         self.infoLabel.setWordWrap(True)
         self.infoLabel.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.footerLabel = QLabel('')
-        self.footerLabel.setStyleSheet('color: #777;')
+        self.footerLabel.setStyleSheet('font-size: 11pt; color: #777;')
         self.footerLabel.setWordWrap(True)
         numbers = QWidget()
         numbersLayout = QVBoxLayout(numbers)
@@ -167,6 +168,8 @@ class GaitTabControl(QWidget):
         self.followCheckBox = QCheckBox('曲線跟隨播放')
         self.followCheckBox.setChecked(True)
         self.followCheckBox.setToolTip('取消勾選後可在曲線上自由縮放、平移；拖曳或點擊曲線可跳到該時間')
+        for widget in (self.frameNumLabel, self.followCheckBox):
+            widget.setStyleSheet('font-size: 12pt;')
         controls = QHBoxLayout()
         for widget in (self.backBtn, self.playBtn, self.forwardBtn, self.frameSlider, self.frameNumLabel,
                        self.followCheckBox):
@@ -182,7 +185,7 @@ class GaitTabControl(QWidget):
         self.cancelBtn = QPushButton('取消')
         for button in (self.loadBtn, self.imuBtn, self.batchBtn, self.autoTargetBtn, self.exportBtn,
                        self.openFolderBtn, self.cancelBtn):
-            button.setMinimumHeight(34)
+            button.setMinimumHeight(38)
         self.fileLabel = QLabel('檔名：')
         self.fileLabel.setWordWrap(True)
         self.targetLabel = QLabel('')
@@ -193,7 +196,8 @@ class GaitTabControl(QWidget):
         self.progressBar.setVisible(False)
 
         panel = QGroupBox('步態分析')
-        panel.setFixedWidth(250)
+        panel.setFixedWidth(270)
+        panel.setStyleSheet('QGroupBox, QPushButton, QLabel { font-size: 12pt; }')
         side = QVBoxLayout(panel)
         for widget in (self.fileLabel, self.loadBtn, self.imuBtn, self.batchBtn, self.targetLabel, self.autoTargetBtn,
                        self.exportBtn, self.openFolderBtn, self.cancelBtn, self.progressBar, self.statusLabel):
