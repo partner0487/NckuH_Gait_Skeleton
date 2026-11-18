@@ -133,7 +133,6 @@ class GaitTabControl(QWidget):
                                  '影片需為側面拍攝、受試者在畫面中左右來回行走。檔名為 VIDIMU 格式'
                                  '（如 S40_A01_T01.mp4）且有 IMU 資料時，會自動疊上 IMU 膝角。\n'
                                  '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。')
-        self.view.setToolTip('畫面中有多人時，點選要分析的人即可重算')
         self.hipPlot = AnglePlot('髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-35, 50))
         self.kneePlot = AnglePlot('膝關節屈曲角度', (-10, 80))
         self.kneePlot.setXLink(self.hipPlot)
@@ -167,11 +166,9 @@ class GaitTabControl(QWidget):
         for button in (self.backBtn, self.playBtn, self.forwardBtn):
             button.setFixedSize(50, 30)
         self.frameSlider = QSlider(Qt.Horizontal)
-        self.frameSlider.setToolTip('鍵盤：A／D 逐格、空白鍵播放／暫停')
         self.frameNumLabel = QLabel('0/0')
         self.followCheckBox = QCheckBox('曲線跟隨播放')
         self.followCheckBox.setChecked(True)
-        self.followCheckBox.setToolTip('取消勾選後可在曲線上自由縮放、平移；拖曳或點擊曲線可跳到該時間')
         for widget in (self.frameNumLabel, self.followCheckBox):
             widget.setStyleSheet('font-size: 12pt;')
         controls = QHBoxLayout()
@@ -181,7 +178,6 @@ class GaitTabControl(QWidget):
 
         self.loadBtn = QPushButton('載入影片')
         self.imuBtn = QPushButton('分析含 IMU 步態影片')
-        self.imuBtn.setToolTip('與「批量分析步態影片」相同，但只分析資料集中有對應 IMU 檔的步態影片')
         self.batchBtn = QPushButton('批量分析步態影片')
         self.autoTargetBtn = QPushButton('改回自動選擇目標')
         self.exportBtn = QPushButton('匯出展示影片')
@@ -222,7 +218,6 @@ class GaitTabControl(QWidget):
         self.splitter.setHandleWidth(8)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setToolTip('拖曳上下分隔線可調整影片與曲線的大小')
         self.splitterInitialized = False
         layout = QVBoxLayout(self)
         layout.addWidget(self.splitter, 1)
