@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from scipy.interpolate import CubicSpline
+from scipy.ndimage import binary_dilation
 from scipy.signal import butter, filtfilt, find_peaks
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'gait_config.yaml')
@@ -51,15 +52,22 @@ def _runs(mask):
     return list(zip(np.flatnonzero(diff == 1), np.flatnonzero(diff == -1)))
 
 
-def fill_gaps(series, max_gap):
-    """缺值段 ≤ max_gap 格用三次樣條補；更長的段與頭尾缺值保持 NaN。"""
+def fill_gaps(series, max_gap, rejected=None, rejected_max_gap=None):
+    """缺值段 ≤ max_gap 格用三次樣條補；更長的段與頭尾缺值保持 NaN。
+
+    rejected 標出被剔除的跳點：含跳點的缺值段改用 rejected_max_gap 為上限（整腿剔除並前後
+    多剔的段較長，但兩側都是好資料）。
+    """
     out = series.copy()
     valid = ~np.isnan(series)
     if valid.sum() < 4:
         return out
     spline = CubicSpline(np.flatnonzero(valid), series[valid])
     for start, end in _runs(~valid):
-        if start == 0 or end == len(series) or end - start > max_gap:
+        limit = max_gap
+        if rejected is not None and rejected[start:end].any():
+            limit = max(max_gap, rejected_max_gap)
+        if start == 0 or end == len(series) or end - start > limit:
             continue
         out[start:end] = spline(np.arange(start, end))
     return out
@@ -76,15 +84,49 @@ def lowpass(series, fps, cutoff, order):
     return out
 
 
+LEG_KPTS = {'L': (13, 15, 20, 22, 24), 'R': (14, 16, 21, 23, 25)}    # 每隻腳的膝、踝、大趾、小趾、腳跟
+
+
+def reject_leg_outliers(xy, window, max_leg_ratio, dilate=1):
+    """腿部跳點：整隻腿（膝到腳）設為 NaN，之後由 fill_gaps 用前後的好資料補值。
+
+    側拍時兩腳交錯，模型偶爾把腳踝、腳跟、腳趾（有時整隻腳）接到另一隻腳上 1～3 格；直接濾波
+    會把這一跳平滑成好幾格「腳擺過去又擺回來」。各點與前後 window 格的中位數軌跡比較（中位數
+    不受少於半數的離群格影響；正常的平滑動作幾乎落在中位數上），偏離超過腿長 × max_leg_ratio
+    即視為跳點。同一格同一隻腿的膝蓋常一起偏掉但幅度較小、抓不到，所以整隻腿一起剔除，
+    並往前後各多剔 dilate 格（16 支 IMU 影片驗證：只剔除單點時有 5 支膝角誤差變大）。
+    """
+    out = xy.copy()
+    leg = np.nanmedian(np.linalg.norm(xy[:, list(KPT['hip'])] - xy[:, list(KPT['ankle'])], axis=2))
+    if not np.isfinite(leg) or leg <= 0:
+        return out
+    for idx in LEG_KPTS.values():
+        bad = np.zeros(len(xy), bool)
+        for k in idx:
+            med = pd.DataFrame(xy[:, k]).rolling(window, center=True, min_periods=window // 2 + 1).median().to_numpy()
+            bad |= np.linalg.norm(xy[:, k] - med, axis=1) > max_leg_ratio * leg
+        if dilate and bad.any():
+            bad = binary_dilation(bad, iterations=dilate)
+        out[np.ix_(bad, list(idx))] = np.nan
+    return out
+
+
 def preprocess(keypoints, cfg):
     """keypoints (T, 26, 3) → 濾波後 (T, 26, 2)。"""
     pre = cfg['preprocess']
     xy = keypoints[:, :, :2].copy()
     xy[keypoints[:, :, 2] < pre['min_confidence']] = np.nan
+    rejected = np.zeros(xy.shape[:2], bool)
+    if pre.get('outlier_window'):
+        cleaned = reject_leg_outliers(xy, pre['outlier_window'], pre['outlier_leg_ratio'],
+                                      pre.get('outlier_dilate_frames', 1))
+        rejected = np.isnan(cleaned[:, :, 0]) & ~np.isnan(xy[:, :, 0])
+        xy = cleaned
     out = np.full_like(xy, np.nan)
     for k in range(xy.shape[1]):
         for c in range(2):
-            filled = fill_gaps(xy[:, k, c], pre['max_gap_frames'])
+            filled = fill_gaps(xy[:, k, c], pre['max_gap_frames'], rejected[:, k],
+                               pre.get('outlier_max_gap_frames', pre['max_gap_frames']))
             out[:, k, c] = lowpass(filled, cfg['fps'], pre['cutoff_hz'], pre['butter_order'])
     return out
 

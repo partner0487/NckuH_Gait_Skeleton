@@ -3,6 +3,10 @@ fps: 30.0
 
 preprocess:
   min_confidence: 0.3        # 信心值低於此視為缺值
+  outlier_window: 7          # 腿部跳點：與前後此格數的中位數軌跡比較（0 表示不剔除）
+  outlier_leg_ratio: 0.12    # 偏離超過腿長的此比例視為跳點（兩腳交錯時被接到另一隻腳），設為缺值後補值
+  outlier_dilate_frames: 1   # 有跳點的那隻腿（膝到腳）整隻剔除，並往前後各多剔此格數
+  outlier_max_gap_frames: 9  # 含跳點的缺值段 ≤ 此格數（0.3 秒）才補值；更長的不硬補
   max_gap_frames: 5          # 連續缺值 ≤ 此格數用三次樣條補值，超過該段不算
   butter_order: 4            # Butterworth 階數（filtfilt 零相位）
   cutoff_hz: 6.0             # 截止頻率
