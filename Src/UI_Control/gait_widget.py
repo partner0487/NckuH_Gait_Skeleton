@@ -27,11 +27,10 @@ from gait_views import AnglePlot, FrameView, SummaryPanel, VideoRow   # noqa: E4
 FOLLOW_BEFORE_S, FOLLOW_AFTER_S = 4.0, 2.0     # 播放時曲線顯示目前時間前 4 秒、後 2 秒
 TOP_STRETCH, CURVES_STRETCH = 56, 44           # 上排（影片、數字、按鈕）與曲線區固定的高度比例
 PLOT_MIN_HEIGHT = 175                          # 每張曲線圖最小高度（像素），刻度與最大伸展標籤才放得下
-# 可顯示的曲線：(代號, 勾選框文字, 標題, 縱軸範圍)；一次只顯示 SHOWN_CURVES 張，避免每張太小
+# 可顯示的曲線：(代號, 勾選框文字, 標題, 縱軸範圍)；一次只顯示 SHOWN_CURVES 張，避免每張太小。
+# 曲線超過 SHOWN_CURVES 張時，曲線右側才出現勾選框讓使用者選要看哪幾張
 CURVES = (('hip', '髖關節', '髖關節屈伸角度（正值＝屈曲，負值＝伸展）', (-35, 50)),
-          ('knee', '膝關節', '膝關節屈曲角度', (-10, 80)),
-          ('ankle', '踝關節', '踝關節背屈角度（正值＝背屈，負值＝蹠屈）', (-35, 30)),
-          ('trunk', '軀幹', '軀幹前傾角度（正值＝前傾）', (-20, 20)))
+          ('knee', '膝關節', '膝關節屈曲角度', (-10, 80)))
 SHOWN_CURVES = 2
 DEFAULT_CURVES = ('hip', 'knee')
 
@@ -142,7 +141,6 @@ class GaitTabControl(QWidget):
                                  '畫面中有多人時會顯示每個人的框，點選要分析的人即可重算。')
         self.plots = {key: AnglePlot(title, y_range) for key, _, title, y_range in CURVES}
         self.hipPlot, self.kneePlot = self.plots['hip'], self.plots['knee']
-        self.anklePlot, self.trunkPlot = self.plots['ankle'], self.plots['trunk']
         for plot in self.plots.values():
             plot.setMinimumHeight(PLOT_MIN_HEIGHT)      # 小視窗時曲線不被壓扁，改由上排讓出空間
         self.syncingX = False
@@ -232,8 +230,13 @@ class GaitTabControl(QWidget):
             plotsLayout.addWidget(plot)
         curvesRow = QHBoxLayout()
         curvesRow.addLayout(plotsLayout, 1)
-        curvesRow.addSpacing(VideoRow.GAP)
-        curvesRow.addWidget(curvePanel)
+        self.curvePanel = curvePanel
+        if len(CURVES) > SHOWN_CURVES:              # 曲線全部顯示得下時不需要勾選，曲線維持全寬
+            curvesRow.addSpacing(VideoRow.GAP)
+            curvesRow.addWidget(curvePanel)
+        else:
+            curvePanel.setParent(self)
+            curvePanel.hide()
         # 上排與曲線區比例固定；顯示的曲線張數固定，切換曲線時每張大小不變
         layout = QVBoxLayout(self)
         layout.addWidget(self.topRow, TOP_STRETCH)
@@ -486,8 +489,6 @@ class GaitTabControl(QWidget):
         if renderer.imu_knee is not None:
             knee.append((renderer.imu_knee, IMU_COLOR, 2, '穿戴式感測器 IMU', True))
         self.kneePlot.setSeries(times, knee)
-        self.anklePlot.setSeries(times, [(renderer.ankle, VIDEO_COLOR, 2.5, '影片', False)])
-        self.trunkPlot.setSeries(times, [(renderer.trunk, VIDEO_COLOR, 2.5, '影片', False)])
         self.summaryPanel.setValues(analysis.values)
         self.headerLabel.setText(analysis.header)
         self.footerLabel.setText(VIDIMU_FOOTER if analysis.trial is not None else '')

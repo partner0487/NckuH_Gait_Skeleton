@@ -102,31 +102,41 @@ class LayoutTests(unittest.TestCase):           # 合成畫面，不需要資料
         widget = self.show((480, 640), (1600, 900))
         self.assertGreaterEqual(widget.view.width(), 600)            # 1600×900 時影片寬至少 600
 
-    def test_two_curves_shown_and_switching_keeps_sizes(self):
-        # 教授要求：一次只顯示 2 張曲線，右側勾選要看哪 2 張；影片與曲線大小不隨切換改變
+    def test_only_hip_and_knee_without_selector(self):
+        # 目前只有髖、膝 2 張曲線：全部顯示、不需要勾選框，曲線全寬
         widget = self.show((480, 640), (1600, 900))
+        self.assertEqual(list(widget.plots), ['hip', 'knee'])
+        self.assertTrue(all(p.isVisible() for p in widget.plots.values()))
+        self.assertFalse(widget.curvePanel.isVisible())
+        self.assertGreater(widget.hipPlot.width(), widget.width() - 40)
+
+    def test_more_curves_than_shown_adds_selector_and_keeps_sizes(self):
+        # 曲線超過 2 張時一次只顯示 2 張，右側勾選要看哪 2 張；影片與曲線大小不隨切換改變
+        import gait_widget
+        extra = (('c', '曲線 C', 'C', (0, 1)), ('d', '曲線 D', 'D', (0, 1)))
+        with patch.object(gait_widget, 'CURVES', gait_widget.CURVES + extra):
+            widget = self.show((480, 640), (1600, 900))
         shown = lambda: [k for k, p in widget.plots.items() if p.isVisible()]      # noqa: E731
         self.assertEqual(shown(), ['hip', 'knee'])
+        self.assertTrue(widget.curvePanel.isVisible())
+        plot_right = widget.hipPlot.mapTo(widget, widget.hipPlot.rect().topRight()).x()
+        self.assertLess(plot_right, widget.curvePanel.mapTo(widget, widget.curvePanel.rect().topLeft()).x())
         view_size, plot_size = widget.view.size(), widget.hipPlot.size()
-        widget.curveChecks['ankle'].setChecked(True)                  # 勾第 3 張 → 取消最早勾的髖關節
+        widget.curveChecks['c'].setChecked(True)                      # 勾第 3 張 → 取消最早勾的髖關節
         APP.processEvents()
-        self.assertEqual(shown(), ['knee', 'ankle'])
+        self.assertEqual(shown(), ['knee', 'c'])
         self.assertFalse(widget.curveChecks['hip'].isChecked())
         self.assertEqual(widget.view.size(), view_size)
-        self.assertEqual(widget.anklePlot.size(), plot_size)
+        self.assertEqual(widget.plots['c'].size(), plot_size)
         widget.curveChecks['knee'].setChecked(False)                  # 不能只剩 1 張
         APP.processEvents()
         self.assertTrue(widget.curveChecks['knee'].isChecked())
-        self.assertEqual(shown(), ['knee', 'ankle'])
-        widget.curveChecks['trunk'].setChecked(True)
+        self.assertEqual(shown(), ['knee', 'c'])
+        widget.curveChecks['d'].setChecked(True)
         APP.processEvents()
-        self.assertEqual(shown(), ['ankle', 'trunk'])
-
-    def test_curve_selector_sits_right_of_curves(self):
-        widget = self.show((480, 640), (1600, 900))
-        box = widget.curveChecks['hip'].parentWidget()
-        plot_right = widget.hipPlot.mapTo(widget, widget.hipPlot.rect().topRight()).x()
-        self.assertLess(plot_right, box.mapTo(widget, box.rect().topLeft()).x())
+        self.assertEqual(shown(), ['c', 'd'])
+        widget.plots['d'].setXRange(3.0, 9.0, padding=0)              # 隱藏中的曲線時間軸也同步
+        self.assertAlmostEqual(widget.hipPlot.viewRange()[0][0], 3.0, places=2)
 
     def test_curves_keep_minimum_height_in_small_window(self):
         import gait_widget
@@ -210,9 +220,7 @@ class GaitWidgetTests(unittest.TestCase):
         x_min, x_max = widget.hipPlot.viewRange()[0]
         self.assertAlmostEqual(x_max - x_min, 12.0, places=2)
         self.assertAlmostEqual(x_min, 30.0 - 8.0, places=2)   # 游標仍在前 2/3 處
-        for plot in (widget.kneePlot, widget.anklePlot, widget.trunkPlot):       # 隱藏中的曲線也同步
-            self.assertAlmostEqual(plot.viewRange()[0][1] - plot.viewRange()[0][0], 12.0, places=2)
-            self.assertAlmostEqual(plot.viewRange()[0][0], 22.0, places=2)
+        self.assertAlmostEqual(widget.kneePlot.viewRange()[0][1] - widget.kneePlot.viewRange()[0][0], 12.0, places=2)
         widget.onAnalyzed(self.analysis)
         x_min, x_max = widget.hipPlot.viewRange()[0]
         self.assertAlmostEqual(x_max - x_min, 6.0, places=2)
